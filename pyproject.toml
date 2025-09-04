@@ -1,0 +1,11 @@
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "malops-agent"
+version = "0.3.0"
+description = "Malware triage agent with LangGraph and modular Tools"
+authors = [{name="You"}]
+requires-python = ">=3.9"
