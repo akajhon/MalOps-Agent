@@ -1,5 +1,6 @@
 
 from langchain_core.tools import tool
+from ..logging_config import log_tool
 import os, re
 from urllib.parse import urlparse
 def _exists(p:str)->bool: return os.path.isfile(p)
@@ -14,7 +15,20 @@ def _ascii_strings(b:bytes, min_len:int=4):
     return [s.decode("ascii", errors="ignore") for s in pat.findall(b)]
 
 @tool
+@log_tool("extract_iocs")
 def extract_iocs(path: str, min_length:int=4, max_strings:int=300, max_iocs:int=100) -> dict:
+    """
+    Extract IOCs (URLs, domains, IPv4s, crypto wallets) from printable strings of a sample.
+
+    Args:
+        path: file path.
+        min_length: min ASCII run length for base string extraction.
+        max_strings: limit of strings to inspect.
+        max_iocs: limit per IOC list in response.
+
+    Returns:
+        dict with counts and lists: urls, domains, ipv4s, btc_addresses, eth_addresses.
+    """
     if not _exists(path): return {"error": f"file not found: {path}"}
     with open(path,"rb") as f: data=f.read()
     strings = _ascii_strings(data, min_len=min_length)[:max_strings]

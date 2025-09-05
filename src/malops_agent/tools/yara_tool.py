@@ -2,10 +2,24 @@
 from langchain_core.tools import tool
 import os
 from ..config import settings
+from ..logging_config import log_tool
 def _exists(p:str)->bool: return os.path.isfile(p)
 
 @tool
+@log_tool("yara_scan")
 def yara_scan(path:str, rules_dir:str=None, max_matches_per_rule:int=5, timeout:int=15)->dict:
+    """
+    Run YARA scan against a file and summarize matches.
+
+    Args:
+        path: file path.
+        rules_dir: directory with .yar/.yara rules (default: env YARA_RULES_DIR).
+        max_matches_per_rule: cap number of string hits returned per rule.
+        timeout: match timeout in seconds.
+
+    Returns:
+        dict with match_count, matches (rule/meta/tags/strings preview) and family_candidates.
+    """
     if not _exists(path): return {"error": f"file not found: {path}"}
     rules_dir = rules_dir or settings.YARA_RULES_DIR
     try:

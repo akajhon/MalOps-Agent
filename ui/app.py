@@ -8,7 +8,7 @@ st.caption("YARA, CAPA, IOCs e Threat Intel (VT, MalwareBazaar, ThreatFox, Abuse
 
 api_base = st.text_input("API base URL", value="http://localhost:8000")
 hint = st.text_input("Hint/Contexto (opcional)", value="")
-model = st.text_input("Modelo LLM", value="gpt-4o-mini")
+model = st.text_input("Modelo LLM", value="gemini-2.0-flash")
 file = st.file_uploader("Selecione o arquivo de amostra", type=None)
 
 if st.button("Enviar e Analisar", disabled=(file is None)):

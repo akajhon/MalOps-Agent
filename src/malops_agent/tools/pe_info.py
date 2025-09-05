@@ -1,5 +1,6 @@
 
 from langchain_core.tools import tool
+from ..logging_config import log_tool
 import os
 def _exists(p:str)->bool: return os.path.isfile(p)
 
@@ -21,7 +22,18 @@ def _sniff(b:bytes)->str:
     return "Unknown"
 
 @tool
+@log_tool("pe_basic_info")
 def pe_basic_info(path:str)->dict:
+    """
+    Parse quick PE metadata: sections, suspicious imports, compile timestamp, and packer hint.
+
+    Args:
+        path: file path.
+
+    Returns:
+        dict with type, sections (entropy/sizes), import_count, suspicious_imports, compile_timestamp, packer_hint.
+        If not PE or 'pefile' missing/errored, returns an explanatory payload.
+    """
     if not _exists(path): return {"error": f"file not found: {path}"}
     with open(path,"rb") as f: data=f.read()
     t=_sniff(data)

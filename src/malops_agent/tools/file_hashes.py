@@ -1,9 +1,11 @@
 
 from langchain_core.tools import tool
+from ..logging_config import log_tool
 import os, hashlib
 def _exists(p:str)->bool: return os.path.isfile(p)
 
 @tool
+@log_tool("compute_hashes")
 def compute_hashes(path: str) -> dict:
     """Compute MD5/SHA1/SHA256 and size. Args: path"""
     if not _exists(path): return {"error": f"file not found: {path}"}

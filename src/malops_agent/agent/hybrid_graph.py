@@ -1,102 +1,141 @@
-
-from typing import Dict, Any, Optional
+from typing import Optional
+from typing_extensions import TypedDict, Annotated
+from operator import or_ as merge_dicts
 from langgraph.graph import StateGraph, END
 from langchain_core.runnables import RunnableLambda
-from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from langgraph.prebuilt import ToolNode
+from langchain_google_genai import ChatGoogleGenerativeAI as ChatLLM  # ou ChatOpenAI
 import json
-
-# Tools
+import os
 from ..tools import (
-    compute_hashes, extract_iocs, pe_basic_info, file_head_entropy, yara_scan, capa_scan,
-    askjoe_ai_triage, askjoe_capa_summary
+    compute_hashes, extract_iocs, pe_basic_info, file_head_entropy, yara_scan, capa_scan
 )
 from ..tools.ti_providers import (
     vt_lookup_tool, malwarebazaar_lookup_tool, threatfox_bulk_search_tool, abuseipdb_bulk_check_tool
 )
-from ..tools.askjoe_threatintel_tool import _normalize
+from ..tools.ti_providers import (
+    vt_lookup_tool, malwarebazaar_lookup_tool,
+    threatfox_bulk_search_tool, abuseipdb_bulk_check_tool,
+    _normalize_all as _normalize,
+)
 
-class State(dict): pass
+class State(TypedDict, total=False):
+    # entradas
+    file_path: str
+    hint: str
+    model: str
 
-# ---------------- Basic nodes ----------------
+    # artefatos
+    hashes: Annotated[dict, merge_dicts]
+    sha256: str
+    iocs: Annotated[dict, merge_dicts]
+    static_summary: Annotated[dict, merge_dicts]
+
+    # TI (por provedor)
+    ti_vt: Annotated[dict, merge_dicts]
+    ti_mb: Annotated[dict, merge_dicts]
+    ti_tf: Annotated[dict, merge_dicts]
+    ti_abuse: Annotated[dict, merge_dicts]
+
+    # TI normalizada e saída final
+    threat_intel: Annotated[dict, merge_dicts]
+    final: Annotated[dict, merge_dicts]
+
+def _node_bootstrap(state: State) -> State:
+    """
+    Normaliza o estado inicial e garante 'file_path'. Aceita aliases ('path', 'temp_path').
+    """
+    fp = state.get("file_path") or state.get("path") or state.get("temp_path")
+    if not fp:
+        raise KeyError(
+            "file_path missing in state. Use /analyze (JSON com 'file_path') "
+            "ou /analyze/upload (multipart)."
+        )
+    # Não escreva de novo se já existe no estado inicial (evita conflito com input).
+    if "file_path" in state:
+        return {}  # nenhum write neste passo
+    return {"file_path": fp}
 
 def _node_hashes(state: State) -> State:
-    p = state["file_path"]
-    state["hashes"] = compute_hashes.func(p)
-    # convenience sha256
-    sha256 = (state["hashes"] or {}).get("sha256")
-    state["sha256"] = sha256
-    return state
+    p = state.get("file_path")
+    if not p:
+        raise KeyError("file_path not set; expected bootstrap to enforce this")
+    h = compute_hashes.func(p)
+    return {
+        "hashes": h,
+        "sha256": (h or {}).get("sha256"),
+    }
 
 def _node_iocs(state: State) -> State:
-    p = state["file_path"]
-    state["iocs"] = extract_iocs.func(p)
-    return state
+    p = state.get("file_path")
+    if not p:
+        raise KeyError("file_path not set; expected bootstrap to enforce this")
+    i = extract_iocs.func(p)
+    return {"iocs": i}
 
-# ---------------- Static Agent (LLM + ToolNode) ----------------
-
-STATIC_TOOLS = [compute_hashes, pe_basic_info, file_head_entropy, extract_iocs, yara_scan, capa_scan, askjoe_ai_triage, askjoe_capa_summary]
+STATIC_TOOLS = [
+    compute_hashes, pe_basic_info, file_head_entropy, extract_iocs,
+    yara_scan, capa_scan
+]
 
 def _static_prompt():
     return (
-        "StaticAnalysisAgent: use as ferramentas estáticas (hashes, PE, entropia, IOCs, YARA, CAPA, askjoe_ai_triage). "
-        "Produza um resumo técnico curto e estruturado em JSON com chaves:\n"
-        "  imports_suspeitos, entropias_relevantes, iocs_resumidos, yara_familias, capa_categorias.\n"
+        "StaticAnalysisAgent: use as ferramentas estáticas (hashes, PE, entropia, IOCs, YARA, CAPA, triage). "
+        "Produza um resumo técnico curto e estruturado em JSON com chaves: "
+        "imports_suspeitos, entropias_relevantes, iocs_resumidos, yara_scan, capa_scan. "
         "Não gere veredito final."
     )
 
 def _node_static_agent(state: State) -> State:
-    llm = ChatOpenAI(model=state.get("model", "gpt-4o-mini"), temperature=0)
+    llm = ChatLLM(
+        model=state.get("model", "gemini-2.0-flash"),
+        temperature=0,
+        google_api_key=os.getenv("GEMINI_API_KEY")  # <- chave explícita
+    )
     tool_node = ToolNode(STATIC_TOOLS)
     llm_tools = llm.bind_tools(STATIC_TOOLS)
     messages = [
         SystemMessage(content=_static_prompt()),
         HumanMessage(content=f"Target: {state.get('file_path')}\nHint: {state.get('hint','')}")
     ]
-    # very small loop: one pass of tool calling
     ai = llm_tools.invoke(messages)
     messages.append(ai)
     if isinstance(ai, AIMessage) and ai.tool_calls:
         tool_out = tool_node.invoke({"messages": messages})
         messages = tool_out["messages"]
-        # model sees tool outputs once:
         ai2 = llm_tools.invoke(messages)
-        messages.append(ai2)
         content = ai2.content
     else:
         content = ai.content
     try:
-        state["static_summary"] = json.loads(content)
+        out = json.loads(content)
     except Exception:
-        state["static_summary"] = {"raw": content}
-    return state
-
-# ---------------- TI provider nodes (parallel) ----------------
+        out = {"raw": content}
+    return {"static_summary": out}
 
 def _node_ti_vt(state: State) -> State:
     sha = state.get("sha256") or ""
-    state["ti_vt"] = vt_lookup_tool.func(sha)
-    return state
+    return {"ti_vt": vt_lookup_tool.func(sha)}
 
 def _node_ti_mb(state: State) -> State:
     sha = state.get("sha256") or ""
-    state["ti_mb"] = malwarebazaar_lookup_tool.func(sha)
-    return state
+    return {"ti_mb": malwarebazaar_lookup_tool.func(sha)}
+
 
 def _node_ti_tf(state: State) -> State:
     iocs = state.get("iocs") or {}
     urls = iocs.get("urls") or []
     domains = iocs.get("domains") or []
     ips = iocs.get("ipv4s") or []
-    state["ti_tf"] = threatfox_bulk_search_tool.func(urls=urls, domains=domains, ips=ips)
-    return state
+    return {"ti_tf": threatfox_bulk_search_tool.func(urls=urls, domains=domains, ips=ips)}
+
 
 def _node_ti_abuse(state: State) -> State:
     iocs = state.get("iocs") or {}
     ips = iocs.get("ipv4s") or []
-    state["ti_abuse"] = abuseipdb_bulk_check_tool.func(ips=ips)
-    return state
+    return {"ti_abuse": abuseipdb_bulk_check_tool.func(ips=ips)}
+
 
 def _node_ti_normalize(state: State) -> State:
     sha = state.get("sha256") or ""
@@ -104,22 +143,24 @@ def _node_ti_normalize(state: State) -> State:
     mb = state.get("ti_mb")
     tf = state.get("ti_tf")
     abuse = state.get("ti_abuse")
-    state["threat_intel"] = _normalize(vt, mb, tf, abuse, sha)
-    return state
+    return {"threat_intel": _normalize(vt, mb, tf, abuse, sha)}
 
-# ---------------- Summarizer ----------------
 
 def _supervisor_prompt() -> str:
     return (
         "Supervisor: com base no resumo estático e na inteligência de ameaças normalizada, "
-        "gere APENAS um JSON com:\n"
-        "  verdict (malicious|suspicious|benign), veredict (alias), confidence (0..1), motives (lista),\n"
-        "  probable_family, indicators (hashes, imports, urls, domains, ipv4s, wallets, strings), recommended_actions.\n"
+        "gere APENAS um JSON com: "
+        "verdict (malicious|suspicious|benign), veredict (alias), confidence (0..1), motives (lista), "
+        "probable_family, indicators (hashes, imports, urls, domains, ipv4s, wallets, strings), recommended_actions. "
         "Se evidências forem ambíguas, use 'suspicious'. Seja conciso e técnico."
     )
 
 def _node_supervisor(state: State) -> State:
-    llm = ChatOpenAI(model=state.get("model", "gpt-4o-mini"), temperature=0)
+    llm = ChatLLM(
+        model=state.get("model", "gemini-2.0-flash"),
+        temperature=0,
+        google_api_key=os.getenv("GEMINI_API_KEY")  # <- chave explícita
+    )
     sys = SystemMessage(content=_supervisor_prompt())
     payload = {
         "static_summary": state.get("static_summary"),
@@ -132,17 +173,19 @@ def _node_supervisor(state: State) -> State:
     human = HumanMessage(content="Evidências:\n"+json.dumps(payload, ensure_ascii=False))
     out = llm.invoke([sys, human]).content
     try:
-        state["final"] = json.loads(out)
+        final = json.loads(out)
     except Exception:
-        state["final"] = {"raw": out}
-    return state
+        final = {"raw": out}
+    return {"final": final}
 
-# ---------------- Build hybrid graph ----------------
 
 def build_hybrid_graph():
     g = StateGraph(State)
-    # nodes
-    from langchain_core.runnables import RunnableLambda
+
+    # ENTRY: bootstrap primeiro
+    g.add_node("bootstrap", RunnableLambda(_node_bootstrap))
+
+    # Demais nós
     g.add_node("hashes", RunnableLambda(_node_hashes))
     g.add_node("iocs", RunnableLambda(_node_iocs))
     g.add_node("static_agent", RunnableLambda(_node_static_agent))
@@ -153,28 +196,36 @@ def build_hybrid_graph():
     g.add_node("ti_normalize", RunnableLambda(_node_ti_normalize))
     g.add_node("supervisor", RunnableLambda(_node_supervisor))
 
-    # entry: run hashes and iocs in parallel
-    g.set_entry_point("hashes")
-    g.add_edge("hashes", "iocs")
-    # after basic artifacts, run static agent and TI providers in parallel
+    # Entrada -> bootstrap
+    g.set_entry_point("bootstrap")
+
+    # Do bootstrap, dispare hashes e iocs
+    g.add_edge("bootstrap", "hashes")
+    g.add_edge("bootstrap", "iocs")
+
+    # Paralelo após artefatos básicos
     g.add_edge("iocs", "static_agent")
     g.add_edge("iocs", "ti_tf")
     g.add_edge("iocs", "ti_abuse")
     g.add_edge("hashes", "ti_vt")
     g.add_edge("hashes", "ti_mb")
-    # normalize TI when all TI providers finished
+
+    # Normalização de TI
     g.add_edge("ti_vt", "ti_normalize")
     g.add_edge("ti_mb", "ti_normalize")
     g.add_edge("ti_tf", "ti_normalize")
     g.add_edge("ti_abuse", "ti_normalize")
-    # supervisor needs static + TI normalized
+
+    # Supervisor consome estático + TI normalizada
     g.add_edge("static_agent", "supervisor")
     g.add_edge("ti_normalize", "supervisor")
     g.add_edge("supervisor", END)
+
     return g.compile()
 
-def run_hybrid(file_path: str, hint: Optional[str]=None, model: str="gpt-4o-mini") -> Dict[str, Any]:
+def run_hybrid(file_path: str, hint: Optional[str]=None, model: str="gemini-2.0-flash") -> dict:
     app = build_hybrid_graph()
-    init = State({"file_path": file_path, "hint": hint or "", "model": model})
+    init: State = {"file_path": file_path, "hint": hint or "", "model": model}
+    print("[run_hybrid] init:", {k: (v if k!="file_path" else str(v)) for k,v in init.items()})
     out = app.invoke(init)
     return out.get("final", {})
