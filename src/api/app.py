@@ -2,9 +2,8 @@
 from fastapi import FastAPI, UploadFile, File, Form
 from pydantic import BaseModel
 import tempfile, os, shutil
-from ..agent.hybrid_graph import run_hybrid
-from dotenv import load_dotenv
-load_dotenv()  # carrega .env antes de tudo
+from ..agent.graph import run_hybrid
+from ..config import get_settings
 
 app = FastAPI(title="MalOps Agent API", version="0.5.0")
 
