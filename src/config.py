@@ -1,21 +1,26 @@
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 
-ENV_FILE = "../.env"
+# Resolve project-level .env regardless of CWD
+ENV_FILE = str((Path(__file__).resolve().parent.parent / ".env").resolve())
 
 def load_env() -> None:
-    """ Carrega o .env UMA vez, da raiz do projeto. """
+    """Load .env once from the project root."""
     load_dotenv(dotenv_path=ENV_FILE, override=False)
 
 def get_settings():
-    """ Retorna configurações em um dicionário simples. """
+    """Return settings as a simple dictionary."""
     load_env()
     return {
         "LOG_LEVEL": os.getenv("LOG_LEVEL", "INFO"),
-        "GOOGLE_API_KEY": os.getenv("GOOGLE_API_KEY", ""),
+        "DB_PATH": os.getenv("DB_PATH", str((Path(__file__).resolve().parent.parent / "data" / "analyses.db").resolve())),
+        "GEMINI_API_KEY": os.getenv("GEMINI_API_KEY", ""),
         "VT_API_KEY": os.getenv("VT_API_KEY", ""),
-        "MALWAREBAZAAR_API_KEY": os.getenv("MALWAREBAZAAR_API_KEY", ""),
-        "ABUSEIPDB_KEY": os.getenv("ABUSEIPDB_KEY", ""),
+        "ABUSE_API_KEY": os.getenv("ABUSE_API_KEY", ""),
+        "OTX_API_KEY": os.getenv("OTX_API_KEY", ""),
+        "HA_API_KEY": os.getenv("HA_API_KEY", ""),
         "YARA_RULES_DIR": os.getenv("YARA_RULES_DIR", ""),
         "CAPA_RULES_DIR": os.getenv("CAPA_RULES_DIR", ""),
+        "CAPA_SIGNATURES_DIR": os.getenv("CAPA_SIGNATURES_DIR", ""),
     }

@@ -1,13 +1,8 @@
-# static_analysis.py
-# Unificado para triagem estática sem Ghidra
-# Compatível com LangChain Tools + seu log_tool
-# Requisitos (opcionais): pefile
-
-from __future__ import annotations
 from langchain_core.tools import tool
 from typing import List, Dict, Any, Optional, Tuple
 from ..logging_config import log_tool
-
+from .yara_tool import yara_scan
+from .capa_tool import capa_scan
 import os, re, math, hashlib, time
 
 # =========================
@@ -36,6 +31,52 @@ def _entropy(data: bytes) -> float:
             ent -= p * (math.log(p) / ln2)
     return round(ent, 3)
 
+# =========================
+# Small tools used by agents
+# =========================
+
+@tool
+@log_tool("compute_hashes")
+def compute_hashes(path: str) -> Dict[str, Any]:
+    """Compute MD5/SHA1/SHA256 and size for a file."""
+    if not _exists(path):
+        return {"error": f"file not found: {path}"}
+    data = _read_file(path)
+    return {
+        "path": os.path.abspath(path),
+        "size_bytes": os.path.getsize(path),
+        "md5": hashlib.md5(data).hexdigest(),
+        "sha1": hashlib.sha1(data).hexdigest(),
+        "sha256": hashlib.sha256(data).hexdigest(),
+    }
+
+@tool
+@log_tool("pe_basic_info")
+def pe_basic_info(path: str) -> Dict[str, Any]:
+    """Wrapper for extract_basic_pe_info."""
+    try:
+        return extract_basic_pe_info.func(path)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"error": str(e)}
+
+@tool
+@log_tool("file_head_entropy")
+def file_head_entropy(path: str, head_bytes: Optional[int] = 2048) -> Dict[str, Any]:
+    """Wrapper for calculate_entropy with head_bytes sample."""
+    try:
+        return calculate_entropy.func(path=path, head_bytes=head_bytes)  # type: ignore[attr-defined]
+    except Exception as e:
+        return {"error": str(e)}
+
+@tool
+@log_tool("extract_iocs")
+def extract_iocs(path: str, min_length: int = 4, max_strings: int = 300, max_iocs: int = 100) -> Dict[str, Any]:
+    """Wrapper for extract_iocs_from_strings."""
+    try:
+        return extract_iocs_from_strings(path=path, min_length=min_length, max_strings=max_strings, max_iocs=max_iocs)
+    except Exception as e:
+        return {"error": str(e)}
+
 def _ascii_strings(data: bytes, min_len: int = 4) -> List[str]:
     pat = re.compile(rb"[ -~]{%d,}" % min_len)
     return [s.decode("ascii", errors="ignore") for s in pat.findall(data)]
@@ -54,7 +95,21 @@ def _try_import_pefile():
     except Exception as e:
         return None
     
-def extract_iocs_from_strings(path: str, min_length: int = 4, max_strings: int = 300, max_iocs: int = 100) -> Dict[str, Any]:
+def _defang(s: str) -> str:
+    """Normalize common defanged indicators in a string.
+
+    Examples: hxxp -> http, [.] -> ., (.) -> ., {.} -> .
+    """
+    try:
+        t = s
+        t = t.replace("hxxps://", "https://").replace("hxxp://", "http://").replace("hxxp:", "http:")
+        t = t.replace("[.]", ".").replace("(.)", ".").replace("{.}", ".").replace("(dot)", ".").replace("[dot]", ".")
+        return t
+    except Exception:
+        return s
+
+
+def extract_iocs_from_strings(path: str, min_length: int = 4, max_strings: int = 5000, max_iocs: int = 100) -> Dict[str, Any]:
     """
     Extrai IOCs (URLs, domínios, IPv4s, carteiras) a partir das strings já obtidas do executável.
     """
@@ -62,13 +117,25 @@ def extract_iocs_from_strings(path: str, min_length: int = 4, max_strings: int =
         return {"error": f"file not found: {path}"}
     
     data = _read_file(path)
-    strings = _ascii_strings(data, min_len=min_length)[:max_strings]
+    strings_all = _ascii_strings(data, min_len=min_length)
+    strings = strings_all[:max_strings]
 
     url_re = re.compile(r"\bhttps?://[^\s'\"<>]+", re.I)
-    urls = list({m.group(0).rstrip(").,]") for s in strings for m in url_re.finditer(s)})
+    urls_set = set()
+    for s in strings:
+        for look in (s, _defang(s)):
+            for m in url_re.finditer(look):
+                urls_set.add(m.group(0).rstrip(").,]"))
+    urls = list(urls_set)
 
     domain_re = re.compile(r"\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?:[a-z]{2,63})\b", re.I)
-    domains_all = list({m.group(0).lower() for s in strings for m in domain_re.finditer(s)})
+    domains_set = set()
+    for s in strings:
+        for look in (s, _defang(s)):
+            for m in domain_re.finditer(look):
+                dom = m.group(0).lower().rstrip(").,]")
+                domains_set.add(dom)
+    domains_all = list(domains_set)
 
     ipv4_re = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
     ipv4s_all = [m.group(0) for s in strings for m in ipv4_re.finditer(s)]
@@ -111,6 +178,14 @@ def extract_comprehensive_triage_data(path: str, strings_min_len: int = 4) -> Di
     stable = extract_stable_strings.invoke({"path": path, "min_length": strings_min_len})
     signatures = extract_code_signatures.invoke({"path": path})
     advanced = extract_advanced_indicators.invoke({"path": path})
+    try:
+        yara = yara_scan.func(path)  # type: ignore[attr-defined]
+    except Exception as e:
+        yara = {"error": str(e)}
+    try:
+        capa = capa_scan.func(path)  # type: ignore[attr-defined]
+    except Exception as e:
+        capa = {"error": str(e)}
     iocs = extract_iocs_from_strings(path, min_length=strings_min_len)
 
     return {
@@ -122,6 +197,8 @@ def extract_comprehensive_triage_data(path: str, strings_min_len: int = 4) -> Di
         "stable_strings": stable.get("strings", []) if isinstance(stable, dict) else stable,
         "code_signatures": signatures.get("signatures", []) if isinstance(signatures, dict) else signatures,
         "advanced_indicators": advanced,
+        "yara": yara,
+        "capa": capa,
         "iocs": iocs
     }
 

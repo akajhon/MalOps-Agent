@@ -4,7 +4,9 @@ from typing import Dict, Any, List, Optional
 from langchain_core.tools import tool
 import os, requests
 
+from ..config import load_env
 from .helpers import env_str, env_float, http_get, http_post, detect_ioc_type
+load_env()  # ensure .env is loaded for API keys
 from ..logging_config import log_tool  # mantém seu decorador de log
 
 # --------------------------
@@ -97,8 +99,9 @@ def otx_query_ioc(ioc: str) -> Dict[str, Any]:
 
 def hybrid_analysis_lookup_hash(sha256: str) -> Dict[str, Any]:
     """
-    Hybrid Analysis (CrowdStrike) — busca por hash.
-    Public API: https://www.hybrid-analysis.com/docs/api/v2
+    Hybrid Analysis (CrowdStrike) — overview summary for a given SHA256.
+    Endpoint: GET https://hybrid-analysis.com/api/v2/overview/<sha256>/
+    Docs: https://www.hybrid-analysis.com/docs/api/v2
     """
     if not HA_API_KEY:
         return {"error": "HA_API_KEY not set"}
@@ -111,9 +114,9 @@ def hybrid_analysis_lookup_hash(sha256: str) -> Dict[str, Any]:
         "User-Agent": "Falcon Sandbox",
         "accept": "application/json",
     }
-    # Endpoint de busca por hash:
-    url = "https://www.hybrid-analysis.com/api/v2/search/hash"
-    st, txt, js = http_post(url, data={"hash": sha256}, headers=headers, timeout=DEFAULT_TIMEOUT)
+    # Overview summary endpoint by SHA256
+    url = f"https://hybrid-analysis.com/api/v2/overview/{sha256}"
+    st, txt, js = http_get(url, headers=headers, timeout=DEFAULT_TIMEOUT)
     if st != 200:
         return {"error": f"HA HTTP {st}", "text": txt[:400]}
     return js
@@ -199,12 +202,16 @@ def normalize_hash(vt: Dict[str, Any] | None,
     except Exception:
         pass
 
-    # Hybrid Analysis — se existir match, acrescenta family/classification simples
+    # Hybrid Analysis — extrai família/score simples
     try:
-        # Public API retorna lista com resultados
         if isinstance(ha, list) and ha:
-            fam = ha[0].get("vx_family") or ha[0].get("threat_score")
-            if fam: labels.append(str(fam))
+            fam = ha[0].get("vx_family") or ha[0].get("verdict") or ha[0].get("threat_score")
+            if fam:
+                labels.append(str(fam))
+        elif isinstance(ha, dict):
+            fam = ha.get("vx_family") or ha.get("verdict") or ha.get("threat_score")
+            if fam:
+                labels.append(str(fam))
     except Exception:
         pass
 

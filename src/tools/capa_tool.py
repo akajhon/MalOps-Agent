@@ -1,27 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-capa_tool.py — Wrapper de varredura CAPA com saída compatível (dictionary/json/texttable)
-- Lê paths de regras e assinaturas do .env (CAPA_RULES_DIR e CAPA_SIGNATURES_DIR)
-- Exponde a função capa_scan(path, output_format="json")
-- Sem argumentos obrigatórios via CLI; uso típico é importado como tool no seu agente.
 
-Requer:
-  pip install capa python-dotenv
-  (e o conjunto de regras do capa disponível localmente)
-
-Env .env:
-  CAPA_RULES_DIR=/caminho/para/capa-rules
-  # opcional, múltiplos diretórios separados por vírgula:
-  CAPA_SIGNATURES_DIR=/caminho/flirt,/outro/caminho/sigs
-"""
 
 from __future__ import annotations
 import os
 import json
 import collections
 from typing import Any, Iterable, List, Optional, Set
+import logging
 from pathlib import Path
+from langchain_core.tools import tool
 import capa.main
 import capa.rules
 import capa.engine
@@ -34,13 +22,14 @@ import capa.capabilities.common
 import capa.render.result_document as rd
 import capa.features.freeze.features as frzf
 from capa.features.common import OS_AUTO, FORMAT_AUTO
+from ..logging_config import log_tool
+log = logging.getLogger("tools.capa")
 
-# --- Carrega .env antes de importar capa (não é estritamente necessário, mas seguro)
+# --- Carrega .env do projeto (idempotente)
 try:
-    from dotenv import load_dotenv
-    load_dotenv(override=False)
+    from ..config import load_env
+    load_env()
 except Exception:
-    # se python-dotenv não estiver instalado, seguimos sem quebrar.
     pass
 
 # --- Imports CAPA
@@ -203,9 +192,11 @@ def _build_result_document(
     doc = rd.ResultDocument.from_capa(meta, rules, capabilities.matches)
     return doc, rules, capabilities, meta
 
+@tool
+@log_tool("capa_scan")
 def capa_scan(
     path: str,
-    output_format: str = "json",
+    output_format: str = "summary",
 ) -> Any:
     """
     Executa o CAPA sobre `path` usando regras/assinaturas do .env e retorna a saída no formato solicitado.
@@ -222,6 +213,7 @@ def capa_scan(
     Raises:
       FileNotFoundError, ValueError, Exception específicos do fluxo
     """
+    log.info("CAPA: scanning path=%s format=%s", path, output_format)
     input_file = Path(path)
     if not input_file.exists():
         raise FileNotFoundError(f"Arquivo não encontrado: {input_file}")
@@ -231,36 +223,28 @@ def capa_scan(
 
     doc, rules, capabilities, meta = _build_result_document(rules_path, input_file, sigs_paths)
 
-    fmt = (output_format or "json").lower().strip()
-    if fmt == "dictionary":
-        return _render_dictionary(doc)
-    elif fmt == "json":
-        # JSON oficial do capa
-        return json.loads(capa.render.json.render(meta, rules, capabilities.matches))
-    elif fmt == "texttable":
-        return capa.render.default.render(meta, rules, capabilities.matches)
-    else:
-        raise ValueError(f"output_format inválido: {output_format!r}")
+    if output_format == "json":
+        result = json.loads(capa.render.json.render(meta, rules, capabilities.matches))
+        log.info("CAPA: completed (full json) capabilities=%d", sum(len(v) for v in result.get("CAPABILITY", {}).values()) if isinstance(result, dict) else -1)
+        return result
 
-# =========================
-# Execução direta (opcional)
-# =========================
-if __name__ == "__main__":
-    # Execução simples sem argumentos obrigatórios:
-    # defina INPUT_FILE no .env para facilitar testes locais.
-    sample = os.getenv("INPUT_FILE", "").strip()
-    if not sample:
-        print("Defina INPUT_FILE no .env para executar diretamente este módulo.")
-        raise SystemExit(2)
-    try:
-        out = capa_scan(sample, output_format=os.getenv("OUTPUT_FORMAT", "json"))
-        # se for dict, imprime JSON bonito; se já for str (texttable), imprime direto
-        if isinstance(out, (dict, list)):
-            print(json.dumps(out, indent=2, ensure_ascii=False))
-        else:
-            print(out)
-    except Exception as e:
-        print(f"[capa_tool] erro: {e}")
-        raise SystemExit(1)
-    
-#export INPUT_FILE="/media/akajhon/HDM/Coding/MalOps-Agent/samples/Lumma.exe"; export CAPA_RULES_DIR="/media/akajhon/HDM/Coding/MalOps-Agent/rules/capa-rules";export CAPA_SIGNATURES_DIR="/media/akajhon/HDM/Coding/MalOps-Agent/rules/capa-rules/sigs"
+    # Build dictionary and optionally trim for summary
+    d = _render_dictionary(doc)
+    if output_format in ("dictionary", "dict"):
+        log.info("CAPA: completed (dict) capabilities=%d", sum(len(v) for v in d.get("CAPABILITY", {}).values()))
+        return d
+
+    # summary: keep only sha256 + pruned ATTCK/MBC/CAPABILITY lists
+    cap = {k: v[:12] for k, v in (d.get("CAPABILITY") or {}).items()}
+    att = {k: v[:10] for k, v in (d.get("ATTCK") or {}).items()}
+    mbc = {k: v[:10] for k, v in (d.get("MBC") or {}).items()}
+    out = {
+        "sha256": d.get("sha256"),
+        "CAPABILITY": cap,
+        "ATTCK": att,
+        "MBC": mbc,
+    }
+    log.info("CAPA: completed (summary) caps_namespaces=%d", len(cap))
+    return out
+
+# Note: this module is intended for use as a tool; not a standalone script.
