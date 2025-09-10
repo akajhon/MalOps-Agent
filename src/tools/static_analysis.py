@@ -1,8 +1,6 @@
 from langchain_core.tools import tool
 from typing import List, Dict, Any, Optional, Tuple
 from ..logging_config import log_tool
-from .yara_tool import yara_scan
-from .capa_tool import capa_scan
 import os, re, math, hashlib, time
 
 # =========================
@@ -178,11 +176,14 @@ def extract_comprehensive_triage_data(path: str, strings_min_len: int = 4) -> Di
     stable = extract_stable_strings.invoke({"path": path, "min_length": strings_min_len})
     signatures = extract_code_signatures.invoke({"path": path})
     advanced = extract_advanced_indicators.invoke({"path": path})
+    # Lazy-import heavy integrations to avoid import errors in doc builds/CI
     try:
+        from .yara_tool import yara_scan  # local import to delay dependency
         yara = yara_scan.func(path)  # type: ignore[attr-defined]
     except Exception as e:
         yara = {"error": str(e)}
     try:
+        from .capa_tool import capa_scan  # local import to delay dependency
         capa = capa_scan.func(path)  # type: ignore[attr-defined]
     except Exception as e:
         capa = {"error": str(e)}

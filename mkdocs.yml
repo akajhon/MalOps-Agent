@@ -42,6 +42,17 @@ plugins:
             show_signature: true
             separate_signature: true
             show_root_heading: true
+          setup_commands:
+            - import sys, types
+            - mods = [
+                'yara',
+                'pefile',
+                'capa', 'capa.main', 'capa.rules', 'capa.engine', 'capa.loader', 'capa.features',
+                'capa.render', 'capa.render.json', 'capa.render.utils', 'capa.render.default',
+                'capa.capabilities', 'capa.capabilities.common', 'capa.render.result_document',
+                'capa.features.freeze', 'capa.features.freeze.features'
+              ]
+            - [sys.modules.setdefault(m, types.ModuleType(m)) for m in mods]
 
 markdown_extensions:
   - admonition
