@@ -34,8 +34,8 @@ plugins:
   - mkdocstrings:
       handlers:
         python:
-          # Add project root so modules are imported as `src.*`
-          paths: [.] 
+          # Ensure project root and src are importable first
+          paths: [., src]
           options:
             docstring_style: google
             show_source: true
@@ -43,7 +43,8 @@ plugins:
             separate_signature: true
             show_root_heading: true
           setup_commands:
-            - import sys, types
+            - import os, sys, types
+            - sys.path.insert(0, os.getcwd())
             - mods = [
                 'yara',
                 'pefile',
