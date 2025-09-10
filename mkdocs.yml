@@ -35,7 +35,8 @@ plugins:
       handlers:
         python:
           # Ensure project root and src are importable first
-          paths: [., src]
+          paths:
+            - .
           options:
             docstring_style: google
             show_source: true
@@ -46,12 +47,12 @@ plugins:
             - import os, sys, types
             - sys.path.insert(0, os.getcwd())
             - mods = [
-                'yara',
-                'pefile',
-                'capa', 'capa.main', 'capa.rules', 'capa.engine', 'capa.loader', 'capa.features',
-                'capa.render', 'capa.render.json', 'capa.render.utils', 'capa.render.default',
-                'capa.capabilities', 'capa.capabilities.common', 'capa.render.result_document',
-                'capa.features.freeze', 'capa.features.freeze.features'
+              'yara',
+              'pefile',
+              'capa', 'capa.main', 'capa.rules', 'capa.engine', 'capa.loader', 'capa.features',
+              'capa.render', 'capa.render.json', 'capa.render.utils', 'capa.render.default',
+              'capa.capabilities', 'capa.capabilities.common', 'capa.render.result_document',
+              'capa.features.freeze', 'capa.features.freeze.features'
               ]
             - [sys.modules.setdefault(m, types.ModuleType(m)) for m in mods]
 
