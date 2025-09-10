@@ -559,8 +559,10 @@ def extract_code_signatures(path: str, max_sigs: int = 3, window: int = 32) -> D
                 size = int(s.SizeOfRawData or 0)
                 if size > 0:
                     end = min(len(data), off + min(size, window))
+                    sec_name = s.Name.rstrip(b"\x00").decode(errors="ignore")
                     sigs.append({
-                        "label": f"ExecSection:{s.Name.rstrip(b'\\x00').decode(errors='ignore')}",
+                        "label": "ExecSection:" + sec_name,
+                        #"label": f"ExecSection:{s.Name.rstrip(b'\\x00').decode(errors='ignore')}",
                         "file_offset": off,
                         "hex": " ".join(f"{b:02x}" for b in data[off:end])
                     })
@@ -656,7 +658,9 @@ def detect_suspicious_characteristics(path: str) -> Dict[str, Any]:
         for s in pe.sections:
             ch = int(getattr(s, "Characteristics", 0))
             if (ch & 0x20000000) and (ch & 0x80000000):  # EXEC & WRITE
-                suspicious.append(f"RWX section: {s.Name.rstrip(b'\\x00').decode(errors='ignore')}")
+                sec_name = s.Name.rstrip(b"\x00").decode(errors="ignore")
+                suspicious.append("RWX section: " + sec_name)
+                #suspicious.append(f"RWX section: {s.Name.rstrip(b'\\x00').decode(errors='ignore')}")
 
         # Few imports
         imp_cnt = 0
