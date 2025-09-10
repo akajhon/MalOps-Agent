@@ -23,6 +23,11 @@ def _startup_logging():
     except Exception as e:
         log.warning("Graph export failed: %s", e)
 
+@app.get("/healthz")
+def healthz():
+    """Lightweight healthcheck endpoint."""
+    return {"status": "ok"}
+
 class AnalyzeByPath(BaseModel):
     file_path: str
     hint: str | None = None

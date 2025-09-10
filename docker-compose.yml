@@ -1,0 +1,49 @@
+version: "3.9"
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: src/api/Dockerfile
+    env_file:
+      - .env
+    environment:
+      DB_PATH: /data/analyses.db
+      YARA_RULES_DIR: /rules
+      CAPA_RULES_DIR: /rules/capa-rules
+      CAPA_SIGNATURES_DIR: /rules/capa-rules/sigs
+      GRAPH_OUT_DIR: /logs/graph
+    volumes:
+      - data:/data
+      - ./rules:/rules:ro
+      - ./logs:/logs
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/healthz || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  ui:
+    build:
+      context: .
+      dockerfile: ui/Dockerfile
+    environment:
+      # Default for the Streamlit input, read in UI code
+      API_BASE: http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "8501:8501"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8501/ || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  data:

@@ -1,7 +1,4 @@
-# MalOps Agent — v5 (Hybrid: Multi-Agente + Paralelo)
-
-
-# MalOps Agent — v3 (LangGraph Single, Multi-Agents & Parallel Nodes)
+# MalOps Agent 
 
 Agente de triagem de malware com Tools modulares e três modos de orquestração:
 
@@ -43,3 +40,33 @@ streamlit run ui/app.py
 ```
 
 > UI: `streamlit run ui/app.py`
+
+## Docker
+
+Run the API (FastAPI + Uvicorn) and UI (Streamlit) with Docker Compose.
+
+Build and start both services:
+
+```
+docker compose up --build
+```
+
+Endpoints:
+- UI: `http://localhost:8501`
+- API: `http://localhost:8000`
+
+Notes:
+- The API persists analyses to a named volume at `/data/analyses.db`.
+- YARA and CAPA rules are mounted from `./rules` into the API container (read-only).
+- Set API keys and options in `.env` (not baked into images); Compose passes them via `env_file`.
+- Healthchecks: API exposes `GET /healthz`; UI health checks the root page.
+
+Build images separately (optional):
+
+```
+# API image
+docker build -f src/api/Dockerfile -t malops-api:local .
+
+# UI image
+docker build -f ui/Dockerfile -t malops-ui:local .
+```

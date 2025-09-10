@@ -1,0 +1,26 @@
+# VCS
+.git
+.gitignore
+
+# Python cache
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+
+# Local env and data
+.env
+data
+logs
+rules
+samples
+*.db
+*.sqlite
+*.sqlite3
+*.zip
+
+# OS/editor cruft
+.DS_Store
+*.swp
+*.swo
+
