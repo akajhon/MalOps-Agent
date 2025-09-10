@@ -4,4 +4,4 @@ title: API App (FastAPI)
 
 # API App
 
-::: api.app
+::: src.api.app

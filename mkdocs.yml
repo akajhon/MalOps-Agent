@@ -34,7 +34,8 @@ plugins:
   - mkdocstrings:
       handlers:
         python:
-          paths: [src]
+          # Add project root so modules are imported as `src.*`
+          paths: [.] 
           options:
             docstring_style: google
             show_source: true

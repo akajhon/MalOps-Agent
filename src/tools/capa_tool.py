@@ -203,15 +203,18 @@ def capa_scan(
 
     Args:
       path: caminho do arquivo PE/ELF/etc. a analisar
-      output_format: "json" (default), "dictionary" ou "texttable"
+      output_format: formato de saída. Valores suportados: "summary" (padrão),
+        "json", "dictionary"/"dict" ou "texttable".
 
     Returns:
-      - "json": str JSON idêntico ao capa.render.json.render
+      - "summary": dict reduzido com sha256 e subconjuntos de CAPABILITY/ATTCK/MBC
+      - "json": dict equivalente à saída JSON do CAPA
       - "dictionary": dict com META/ATTCK/MBC/CAPABILITY
-      - "texttable": str tabela humana (mesmo renderer default do capa)
+      - "texttable": str tabela humana (mesmo renderer padrão do CAPA)
 
     Raises:
-      FileNotFoundError, ValueError, Exception específicos do fluxo
+      FileNotFoundError: quando `path` não existe.
+      Exception: falhas internas ao invocar CAPA (extração/renderização).
     """
     log.info("CAPA: scanning path=%s format=%s", path, output_format)
     input_file = Path(path)
