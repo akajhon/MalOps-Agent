@@ -4,13 +4,12 @@ title: Tools
 
 # Tools
 
-::: src.tools.helpers
+::: tools.helpers
 
-::: src.tools.static_analysis
+::: tools.static_analysis
 
-::: src.tools.yara_tool
+::: tools.yara_tool
 
-::: src.tools.capa_tool
+::: tools.capa_tool
 
-::: src.tools.ti_providers
-
+::: tools.ti_providers

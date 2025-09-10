@@ -4,5 +4,4 @@ title: Agent Graph
 
 # Agent Graph
 
-::: src.agent.graph
-
+::: agent.graph
