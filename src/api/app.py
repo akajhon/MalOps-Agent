@@ -3,7 +3,7 @@ import tempfile, os, shutil, hashlib, logging
 from fastapi import FastAPI, UploadFile, File, Form, Query, HTTPException
 from contextlib import asynccontextmanager
 from pydantic import BaseModel
-from ..agent.graph import run_hybrid
+from ..agent.graph import run_graph
 from ..config import get_settings
 from ..logging_config import configure_logging
 from ..tools.cti_analysis import (
@@ -82,12 +82,12 @@ async def analyze_upload(file: UploadFile = File(...), hint: str = Form(default=
                 log.info("cache hit (upload) for sha256=%s — returning stored result", hashes["sha256"])
                 return cached
 
-            out = run_hybrid(dst, hint=hint, model=model)
+            out = run_graph(dst, hint=hint, model=model)
             save_analysis(file_name=file.filename or os.path.basename(dst), size_bytes=len(b), hashes=hashes, result=out, hint=hint or "", model=model or "")
             return out
         except Exception as e:
             log.warning("Failed to persist analysis: %s", e)
-            out = run_hybrid(dst, hint=hint, model=model)
+            out = run_graph(dst, hint=hint, model=model)
             return out
 
 @app.get("/analyses")

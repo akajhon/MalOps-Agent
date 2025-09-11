@@ -160,55 +160,79 @@ def extract_basic_pe_info(path: str) -> Dict[str, Any]:
 # 3) IMPORT ANALYSIS
 
 def extract_imports_analysis(path: str) -> Dict[str, Any]:
-    """
-    Categorize imports by area (network, crypto, system, etc.).
-    """
+    """ Categorize imports by area (network, crypto, system, etc.). """
     if not file_exists(path):
         return {"error": f"file not found: {path}"}
 
     data = read_file(path)
     if sniff_header(data) != "PE":
         return {"note": "Non-PE or undetected"}
-    
+
     if not pefile:
         return {"error": "'pefile' not available"}
 
     categories = {
-        "network": ["wininet", "winhttp", "ws2_32", "iphlpapi", "wsock32"],
-        "crypto": ["crypt32", "bcrypt", "advapi32", "ncrypt"],
-        "system": ["kernel32", "ntdll", "user32", "gdi32", "shell32", "ole32", "oleaut32"],
-        "registry": ["advapi32", "shlwapi"],
-        "file": ["kernel32", "ntdll", "msvcrt"],
-        "process": ["kernel32", "psapi", "tlhelp32", "ntdll"],
-        "wmi": ["wbem", "ole32", "oleaut32", "wbemcli"],
-        "com": ["ole32", "oleaut32", "comctl32", "comdlg32"],
-        "scheduling": ["taskschd", "advapi32", "kernel32"],
-        "memory": ["kernel32", "ntdll", "msvcrt"],
-        "other": [],
+        "network":   ["wininet", "winhttp", "ws2_32", "iphlpapi", "wsock32", "urlmon"],
+        "crypto":    ["crypt32", "bcrypt", "advapi32", "ncrypt", "secur32", "wintrust"],
+        "system":    ["kernel32", "ntdll", "user32", "gdi32", "shell32", "ole32", "oleaut32", "rpcrt4"],
+        "registry":  ["advapi32", "shlwapi"],
+        "file":      ["kernel32", "ntdll", "msvcrt"],
+        "process":   ["kernel32", "psapi", "tlhelp32", "ntdll"],
+        "wmi":       ["wbem", "wbemcli", "wbemprox", "wmi"],
+        "com":       ["ole32", "oleaut32", "comctl32", "comdlg32"],
+        "scheduling":["taskschd", "advapi32", "kernel32"],
+        "memory":    ["kernel32", "ntdll", "msvcrt"],
+        "other":     [],
     }
 
-    categorized = {k: [] for k in categories.keys()}
+    categorized: Dict[str, list] = {k: [] for k in categories.keys()}
+
     try:
         pe = pefile.PE(path, fast_load=True)
-        if not hasattr(pe, "DIRECTORY_ENTRY_IMPORT"):
-            return {"imports": {}, "note": "No import table"}
+        try:
+            dirs = [pefile.DIRECTORY_ENTRY['IMAGE_DIRECTORY_ENTRY_IMPORT']]
+            delay_dir = pefile.DIRECTORY_ENTRY.get('IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT')
+            if delay_dir is not None:
+                dirs.append(delay_dir)
+            pe.parse_data_directories(directories=dirs)
+        except Exception:
+            try:
+                pe.parse_data_directories()
+            except Exception as e:
+                return {"error": f"data directories parse error: {e}"}
 
-        for entry in pe.DIRECTORY_ENTRY_IMPORT or []:
-            lib = (entry.dll or b"").decode(errors="ignore").lower()
-            for imp in entry.imports or []:
-                name = (imp.name or b"").decode(errors="ignore")
-                cat_found = False
-                for cat, libs in categories.items():
-                    if any(lib.startswith(x) for x in libs):
-                        categorized[cat].append(f"{lib}!{name}")
-                        cat_found = True
-                        break
-                if not cat_found:
-                    categorized["other"].append(f"{lib}!{name}")
+        def process_entries(entries):
+            for entry in entries or []:
+                dll_bytes = entry.dll or b""
+                lib = dll_bytes.decode(errors="ignore").lower()
+                for imp in (entry.imports or []):
+                    if getattr(imp, "name", None):
+                        name = imp.name.decode(errors="ignore")
+                    else:
+                        name = f"ord#{getattr(imp, 'ordinal', '?')}"
+                    placed = False
+                    for cat, prefixes in categories.items():
+                        if any(lib.startswith(pfx) for pfx in prefixes):
+                            categorized[cat].append(f"{lib}!{name}")
+                            placed = True
+                            break
+                    if not placed:
+                        categorized["other"].append(f"{lib}!{name}")
 
-        # Limit the volume a bit
-        categorized = {k: v[:20] for k, v in categorized.items() if v}
-        return {"imports": categorized}
+        if hasattr(pe, "DIRECTORY_ENTRY_IMPORT"):
+            process_entries(pe.DIRECTORY_ENTRY_IMPORT)
+        if hasattr(pe, "DIRECTORY_ENTRY_DELAY_IMPORT"):
+            process_entries(pe.DIRECTORY_ENTRY_DELAY_IMPORT)
+
+        trimmed = {k: v[:50] for k, v in categorized.items() if v}
+
+        if not trimmed:
+            return {
+                "imports": {},
+                "note": "No imports found after parsing (packed sample? API hashing/dynamic resolution? delay-load ausente?)."
+            }
+
+        return {"imports": trimmed}
 
     except Exception as e:
         return {"error": f"imports parse error: {e}"}

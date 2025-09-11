@@ -27,7 +27,7 @@ def start_triage(path: str, strings_min_len: int = 4) -> Dict[str, Any]:
 def run_static_agent(file_path: str, hint: str = "", model: str = "gemini-2.0-flash") -> dict:
     log.info("static_agent: running local triage file=%s", file_path)
     try:
-        triage = start_triage(file_path)
+        triage = start_triage.invoke(file_path)
         log.info("static_agent: triage done (keys=%s)", list(triage.keys()) if isinstance(triage, dict) else type(triage))
         return triage
     except Exception as e:

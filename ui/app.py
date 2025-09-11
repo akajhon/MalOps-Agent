@@ -11,6 +11,23 @@ st.set_page_config(page_title="MalOps Agent", layout="centered")
 st.title("🔍 MalOps Agent — Upload and Analyze Malware Samples")
 st.caption("Autonomous, Graph-Orchestrated Agentic System for Malware Analysis and Threat Intelligence")
 
+# Lightweight styling used by preview and cards
+st.markdown(
+    """
+    <style>
+      .badge{display:inline-block;padding:2px 8px;border-radius:999px;
+        border:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.06);
+        margin-right:6px;font-weight:600;font-size:.8rem}
+      .card{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);
+        padding:10px 14px;border-radius:10px}
+      .label{opacity:.7;font-size:.85rem}
+      .hash{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-size:.9rem}
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 API_BASE_DEFAULT = os.getenv("API_BASE", "http://localhost:8000")
 api_base = st.text_input("API base URL:", value=API_BASE_DEFAULT)
 hint = st.text_input("Hint/Context (optional):", value="")
@@ -35,20 +52,41 @@ if file is not None:
     b = file.getvalue()
     hs = _compute_hashes(b)
 
-    # ---- Preview minimalista ----
+    # ---- Styled preview ----
     st.subheader("📄 Selected File")
-    st.markdown(f"{file.name}")
+    with st.container():
+        st.markdown(
+            f"""
+            <div class="card">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:.75rem;flex-wrap:wrap;">
+                <div style="font-weight:700;font-size:1.05rem">{file.name}</div>
+                <div>
+                  <span class="badge">Size: {_human_size(len(b))}</span>
+                  <span class="badge">Ext: {Path(file.name).suffix or '—'}</span>
+                </div>
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-    st.write("")  # espaçamento
-    st.markdown(f"**Size:** {_human_size(len(b))}")
-    st.markdown(f"**Name:** {file.name}")
-    st.markdown(f"**Extension:** {Path(file.name).suffix or '—'}")
-
-    st.write("")  # espaçamento
+    st.write("")  # spacing
     st.subheader("🔐 Hashes")
-    st.markdown(f"**MD5:** {hs['md5']}")
-    st.markdown(f"**SHA1:** {hs['sha1']}")
-    st.markdown(f"**SHA256:** {hs['sha256']}")
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.markdown("<div class='label'>MD5</div>", unsafe_allow_html=True)
+        st.code(hs["md5"], language=None)
+    with c2:
+        st.markdown("<div class='label'>SHA1</div>", unsafe_allow_html=True)
+        st.code(hs["sha1"], language=None)
+    with c3:
+        st.markdown("<div class='label'>SHA256</div>", unsafe_allow_html=True)
+        st.code(hs["sha256"], language=None)
+
+    with st.expander("Show details", expanded=False):
+        st.markdown("**Name:** " + file.name)
+        st.markdown("**Extension:** " + (Path(file.name).suffix or "—"))
+        st.markdown("**Size:** " + _human_size(len(b)))
 
 def render_result(result: Dict[str, Any]) -> None:
     # ---------- estilos (card + chips) ----------
@@ -129,7 +167,7 @@ def render_result(result: Dict[str, Any]) -> None:
         data=json.dumps(data, indent=2, ensure_ascii=False).encode("utf-8"),
         file_name="analysis.json",
         mime="application/json",
-        use_container_width=True,
+        width='stretch',
     )
 
     # ---------- abas ----------
@@ -160,7 +198,7 @@ def render_result(result: Dict[str, Any]) -> None:
         df_inds = _df_listdict(data.get("key_indicators"))
         if not df_inds.empty:
             st.subheader("📌 Key Indicators:")
-            st.dataframe(df_inds, use_container_width=True)
+            st.dataframe(df_inds, width='stretch')
 
         for title, key in [
             ("🔧 Recommendations", "recommendations_priority_ordered"),
@@ -181,11 +219,10 @@ def render_result(result: Dict[str, Any]) -> None:
             st.subheader(title)
             vals = _as_list(values)
             if vals:
-                st.dataframe(pd.DataFrame({"value": [str(i) for i in vals]}), use_container_width=True)
+                st.dataframe(pd.DataFrame({"value": [str(i) for i in vals]}), width='stretch')
             else:
                 st.write("—")
 
-        # um abaixo do outro:
         section_list("Imports", hs.get("imports"))
         section_list("Sections/Entropy/Anomalies", hs.get("sections_entropy_anomalies"))
         section_list("Interesting Strings", hs.get("strings_of_interest"))
@@ -201,12 +238,50 @@ def render_result(result: Dict[str, Any]) -> None:
             df = _df_listdict(tech.get(k))
             if not df.empty:
                 st.subheader(t)
-                st.dataframe(df, use_container_width=True)
+                st.dataframe(df, width='stretch')
 
-        net = tech.get("networking_exfiltration", {})
+        net = tech.get("networking_exfiltration", {}) or {}
         if isinstance(net, dict) and any(net.values()):
             st.subheader("Networking & Exfiltration")
-            st.write(net)
+            # C2 endpoints table
+            endpoints = net.get("c2_endpoints") or []
+            if endpoints:
+                df_endp = _df_listdict([
+                    {
+                        "value": e.get("value"),
+                        "type": e.get("type"),
+                        "scope": e.get("scope"),
+                        "sources": ", ".join(e.get("sources", [])) if isinstance(e.get("sources"), list) else e.get("sources"),
+                        "notes": e.get("notes"),
+                    }
+                    for e in endpoints if isinstance(e, dict)
+                ])
+                if not df_endp.empty:
+                    st.markdown("**C2 Endpoints**")
+                    st.dataframe(df_endp, width='stretch')
+
+            # Protocols/ports/URIs table
+            protos = net.get("protocols_ports_uris") or []
+            if protos:
+                df_ppu = _df_listdict([
+                    {
+                        "protocol": p.get("protocol"),
+                        "port": p.get("port"),
+                        "uri_path": p.get("uri_path"),
+                        "sources": ", ".join(p.get("sources", [])) if isinstance(p.get("sources"), list) else p.get("sources"),
+                    }
+                    for p in protos if isinstance(p, dict)
+                ])
+                if not df_ppu.empty:
+                    st.markdown("**Protocols / Ports / URIs**")
+                    st.dataframe(df_ppu, width='stretch')
+
+            # Behavioral notes
+            notes = net.get("behavioral_notes") or []
+            if notes:
+                st.markdown("**Behavioral Notes**")
+                for n in _as_list(notes):
+                    st.markdown(f"- {n}")
 
         # Gráfico CAPA por namespace
         capa_raw = _as_list(hs.get("capa_findings"))
@@ -218,7 +293,7 @@ def render_result(result: Dict[str, Any]) -> None:
     with tab3:
         df_mitre = _df_listdict(data.get("mitre_attack"))
         if not df_mitre.empty:
-            st.dataframe(df_mitre, use_container_width=True)
+            st.dataframe(df_mitre, width='stretch')
             if "tactic" in df_mitre.columns:
                 tcounts = df_mitre["tactic"].fillna("UNKNOWN").astype(str).value_counts().to_dict()
                 _bar_from_counts(tcounts, "Tactics (count)")
@@ -230,7 +305,7 @@ def render_result(result: Dict[str, Any]) -> None:
             vals = _as_list(values)
             if vals:
                 st.subheader(title)
-                st.dataframe(pd.DataFrame({"value": vals}), use_container_width=True)
+                st.dataframe(pd.DataFrame({"value": vals}), width='stretch')
         _section("hashes", inv.get("hashes"))
         _section("domains", inv.get("domains"))
         _section("ips", inv.get("ips"))

@@ -182,9 +182,6 @@ def static_analysis_prompt()->str:
             "registry_keys": ["<key or value>"],
             "mutexes_named_pipes": ["<name>"]
         },
-        "data_quality_gaps": [
-            "<what’s missing or inconclusive and why it matters>"
-        ],
         "key_evidence": ["<top 3-7 strongest indicators>"],
         "recommended_next_steps": ["<action>", "<action>"]
         }

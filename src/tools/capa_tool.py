@@ -20,6 +20,20 @@ log = logging.getLogger("tools.capa")
 CAPA_RULES_DIR = get_settings().get("CAPA_RULES_DIR", "")
 CAPA_SIGNATURES_DIR = get_settings().get("CAPA_SIGNATURES_DIR", "")
 
+def _silence_vivisect_logging() -> None:
+    """Reduce noise from vivisect/viv-utils by lowering their logger levels and preventing propagation."""
+    for name in ("vivisect", "viv_utils", "viv", "capa.loader.viv"):
+        try:
+            lg = logging.getLogger(name)
+            lg.setLevel(logging.ERROR)
+            lg.propagate = False
+            # Ensure at least one NullHandler so parent handlers don't emit
+            has_null = any(isinstance(h, logging.NullHandler) for h in lg.handlers)
+            if not has_null:
+                lg.addHandler(logging.NullHandler())
+        except Exception:
+            pass
+
 def render_meta(doc: rd.ResultDocument, result: dict) -> None:
     result["md5"] = doc.meta.sample.md5
     result["sha1"] = doc.meta.sample.sha1
@@ -133,6 +147,8 @@ def build_result_document(
     Performs extraction and matching, packages metadata/layout.
     Returns the ResultDocument and the structures needed for different renderers.
     """
+    # Silence vivisect logs before initializing the extractor
+    _silence_vivisect_logging()
     rules = capa.rules.get_rules([rules_path])
     signature_paths = signature_paths or []
     extractor = capa.loader.get_extractor(

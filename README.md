@@ -1,4 +1,9 @@
-# MalOps Agent 
+# MalOps Agent
+
+/bin/bash -c "$(curl -fsSL https://github.com/akajhon/MalOps-Agent/main/run.sh)"
+# ou
+/bin/bash -c "$(wget -qO- https://github.com/akajhon/MalOps-Agent/main/run.sh)"
+
 
 Agente de triagem de malware com Tools modulares e três modos de orquestração:
 

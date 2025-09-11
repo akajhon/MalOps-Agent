@@ -1,11 +1,11 @@
-import logging
-import time
+import logging, time, sys
 from functools import wraps
 from typing import Callable, Any, Optional
 from .config import get_settings
 
-def configure_logging(level: Optional[str] = None):
-    """Configure global logging for the whole project.
+def configure_logging(level: Optional[str] = None, log_file: str = "malops.log"):
+    """
+    Configure global logging for the whole project.
 
     Receives `LOG_LEVEL` from settings if `level` is not provided.
     """
@@ -15,7 +15,23 @@ def configure_logging(level: Optional[str] = None):
     fmt = "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
     datefmt = "%d-%m-%Y %H:%M:%S"
 
-    logging.basicConfig(level=lvl, format=fmt, datefmt=datefmt, force=True)
+    formatter = logging.Formatter(fmt, datefmt=datefmt)
+
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(formatter)
+    console_handler.setLevel(lvl)
+
+    file_handler = logging.FileHandler(log_file, encoding="utf-8")
+    file_handler.setFormatter(formatter)
+    file_handler.setLevel(lvl)
+
+    root_logger = logging.getLogger()
+    root_logger.setLevel(lvl)
+
+    root_logger.handlers.clear()
+    root_logger.addHandler(console_handler)
+    root_logger.addHandler(file_handler)
+
     logging.getLogger("agent").setLevel(lvl)
     logging.getLogger("tools").setLevel(lvl)
     logging.getLogger("api").setLevel(lvl)
