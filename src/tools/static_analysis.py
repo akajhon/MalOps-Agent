@@ -1,190 +1,88 @@
-from langchain_core.tools import tool
-from typing import List, Dict, Any, Optional, Tuple
-from ..logging_config import log_tool
-import os, re, math, hashlib, time
+import os, re, hashlib, pefile
+from typing import Dict, Any, Optional
+from .yara_tool import yara_scan
+from .capa_tool import capa_scan
+from .helpers import (
+    file_exists,
+    read_file,
+    entropy,
+    get_ascii_strings,
+    sniff_header,
+    defang_ioc,
+)
 
-# =========================
-# Helpers básicos e comuns
-# =========================
-
-def _exists(p: str) -> bool:
-    return os.path.isfile(p)
-
-def _read_file(path: str) -> bytes:
-    with open(path, "rb") as f:
-        return f.read()
-
-def _entropy(data: bytes) -> float:
-    if not data:
-        return 0.0
-    freq = [0] * 256
-    for b in data:
-        freq[b] += 1
-    ent = 0.0
-    ln2 = math.log(2)
-    n = len(data)
-    for c in freq:
-        if c:
-            p = c / n
-            ent -= p * (math.log(p) / ln2)
-    return round(ent, 3)
-
-# =========================
-# Small tools used by agents
-# =========================
-
-@tool
-@log_tool("compute_hashes")
-def compute_hashes(path: str) -> Dict[str, Any]:
-    """Compute MD5/SHA1/SHA256 and size for a file."""
-    if not _exists(path):
-        return {"error": f"file not found: {path}"}
-    data = _read_file(path)
-    return {
-        "path": os.path.abspath(path),
-        "size_bytes": os.path.getsize(path),
-        "md5": hashlib.md5(data).hexdigest(),
-        "sha1": hashlib.sha1(data).hexdigest(),
-        "sha256": hashlib.sha256(data).hexdigest(),
-    }
-
-@tool
-@log_tool("pe_basic_info")
-def pe_basic_info(path: str) -> Dict[str, Any]:
-    """Wrapper for extract_basic_pe_info."""
-    try:
-        return extract_basic_pe_info.func(path)  # type: ignore[attr-defined]
-    except Exception as e:
-        return {"error": str(e)}
-
-@tool
-@log_tool("file_head_entropy")
-def file_head_entropy(path: str, head_bytes: Optional[int] = 2048) -> Dict[str, Any]:
-    """Wrapper for calculate_entropy with head_bytes sample."""
-    try:
-        return calculate_entropy.func(path=path, head_bytes=head_bytes)  # type: ignore[attr-defined]
-    except Exception as e:
-        return {"error": str(e)}
-
-@tool
-@log_tool("extract_iocs")
-def extract_iocs(path: str, min_length: int = 4, max_strings: int = 300, max_iocs: int = 100) -> Dict[str, Any]:
-    """Wrapper for extract_iocs_from_strings."""
-    try:
-        return extract_iocs_from_strings(path=path, min_length=min_length, max_strings=max_strings, max_iocs=max_iocs)
-    except Exception as e:
-        return {"error": str(e)}
-
-def _ascii_strings(data: bytes, min_len: int = 4) -> List[str]:
-    pat = re.compile(rb"[ -~]{%d,}" % min_len)
-    return [s.decode("ascii", errors="ignore") for s in pat.findall(data)]
-
-def _sniff_header(data: bytes) -> str:
-    if len(data) >= 2 and data[:2] == b"MZ":
-        return "PE"
-    if len(data) >= 4 and data[:4] == b"\x7fELF":
-        return "ELF"
-    return "Unknown"
-
-def _try_import_pefile():
-    try:
-        import pefile  # type: ignore
-        return pefile
-    except Exception as e:
-        return None
-    
-def _defang(s: str) -> str:
-    """Normalize common defanged indicators in a string.
-
-    Examples: hxxp -> http, [.] -> ., (.) -> ., {.} -> .
+def extract_iocs_from_strings(path: str, min_length: int = 4, max_strings: int = 10000, max_iocs: int = 10000) -> Dict[str, Any]:
     """
-    try:
-        t = s
-        t = t.replace("hxxps://", "https://").replace("hxxp://", "http://").replace("hxxp:", "http:")
-        t = t.replace("[.]", ".").replace("(.)", ".").replace("{.}", ".").replace("(dot)", ".").replace("[dot]", ".")
-        return t
-    except Exception:
-        return s
-
-
-def extract_iocs_from_strings(path: str, min_length: int = 4, max_strings: int = 5000, max_iocs: int = 100) -> Dict[str, Any]:
+    Extract IOCs (URLs, domains, IPv4s, and cryptocurrency wallets) from ASCII strings in a file.
+    Accepts optional limits for number of strings scanned and IOCs returned.
     """
-    Extrai IOCs (URLs, domínios, IPv4s, carteiras) a partir das strings já obtidas do executável.
-    """
-    if not _exists(path):
+    if not file_exists(path):
         return {"error": f"file not found: {path}"}
     
-    data = _read_file(path)
-    strings_all = _ascii_strings(data, min_len=min_length)
-    strings = strings_all[:max_strings]
+    data = read_file(path)
+    strings = get_ascii_strings(data, min_len=min_length)[: max(0, int(max_strings))]
 
     url_re = re.compile(r"\bhttps?://[^\s'\"<>]+", re.I)
     urls_set = set()
     for s in strings:
-        for look in (s, _defang(s)):
+        for look in (s, defang_ioc(s)):
             for m in url_re.finditer(look):
                 urls_set.add(m.group(0).rstrip(").,]"))
-    urls = list(urls_set)
+    urls = list(urls_set)[: max(0, int(max_iocs))]
 
     domain_re = re.compile(r"\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?:[a-z]{2,63})\b", re.I)
     domains_set = set()
     for s in strings:
-        for look in (s, _defang(s)):
+        for look in (s, defang_ioc(s)):
             for m in domain_re.finditer(look):
                 dom = m.group(0).lower().rstrip(").,]")
                 domains_set.add(dom)
-    domains_all = list(domains_set)
+    domains_all = list(domains_set)[: max(0, int(max_iocs))]
 
     ipv4_re = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
     ipv4s_all = [m.group(0) for s in strings for m in ipv4_re.finditer(s)]
-    ipv4s = [ip for ip in ipv4s_all if all(0 <= int(p) <= 255 for p in ip.split("."))]
+    ipv4s = [ip for ip in ipv4s_all if all(0 <= int(p) <= 255 for p in ip.split("."))][: max(0, int(max_iocs))]
 
     btc_re = re.compile(r"\b(?:[13][a-km-zA-HJ-NP-Z1-9]{25,34}|bc1[ac-hj-np-z02-9]{25,39})\b")
     eth_re = re.compile(r"\b0x[a-fA-F0-9]{40}\b")
-    btc = list({m.group(0) for s in strings for m in btc_re.finditer(s)})
-    eth = list({m.group(0) for s in strings for m in eth_re.finditer(s)})
+    btc = list({m.group(0) for s in strings for m in btc_re.finditer(s)})[: max(0, int(max_iocs))]
+    eth = list({m.group(0) for s in strings for m in eth_re.finditer(s)})[: max(0, int(max_iocs))]
 
     return {
         "path": os.path.abspath(path),
         "counts": {"urls": len(urls), "domains": len(domains_all), "ipv4s": len(ipv4s),
-                   "btc_addresses": len(btc), "eth_addresses": len(eth)},
-        "urls": urls[:max_iocs],
-        "domains": domains_all[:max_iocs],
-        "ipv4s": ipv4s[:max_iocs],
-        "btc_addresses": btc[:max_iocs],
-        "eth_addresses": eth[:max_iocs]
+                "btc_addresses": len(btc), "eth_addresses": len(eth)},
+        "urls": urls,
+        "domains": domains_all,
+        "ipv4s": ipv4s,
+        "btc_addresses": btc,
+        "eth_addresses": eth
     }
 
-# =========================
-# 1) TRIAGEM COMPREENSIVA
-# =========================
+# 1) COMPREHENSIVE TRIAGE
 
-@tool
-@log_tool("extract_comprehensive_triage_data")
 def extract_comprehensive_triage_data(path: str, strings_min_len: int = 4) -> Dict[str, Any]:
     """
-    Executa a triagem consolidada: info básica, imports, seções, versão,
-    strings estáveis, assinaturas de código e indicadores avançados.
+    Run consolidated triage: basic info, imports, sections, version,
+    stable strings, code signatures, advanced indicators, and local YARA/CAPA.
     """
-    if not _exists(path):
+    if not file_exists(path):
         return {"error": f"file not found: {path}"}
 
-    basic = extract_basic_pe_info.invoke({"path": path})
-    imports = extract_imports_analysis.invoke({"path": path})
-    sections = extract_sections_analysis.invoke({"path": path})
-    version = extract_version_info.invoke({"path": path})
-    stable = extract_stable_strings.invoke({"path": path, "min_length": strings_min_len})
-    signatures = extract_code_signatures.invoke({"path": path})
-    advanced = extract_advanced_indicators.invoke({"path": path})
-    # Lazy-import heavy integrations to avoid import errors in doc builds/CI
+    basic = extract_basic_pe_info(path)
+    imports = extract_imports_analysis(path)
+    sections = extract_sections_analysis(path)
+    version = extract_version_info(path)
+    stable = extract_stable_strings(path, min_length=strings_min_len)
+    signatures = extract_code_signatures(path)
+    advanced = extract_advanced_indicators(path)
+    sh_entropy = calculateentropy(path)
     try:
-        from .yara_tool import yara_scan  # local import to delay dependency
-        yara = yara_scan.func(path)  # type: ignore[attr-defined]
+        yara = yara_scan.func(path) 
     except Exception as e:
         yara = {"error": str(e)}
     try:
-        from .capa_tool import capa_scan  # local import to delay dependency
-        capa = capa_scan.func(path)  # type: ignore[attr-defined]
+        capa = capa_scan.func(path)
     except Exception as e:
         capa = {"error": str(e)}
     iocs = extract_iocs_from_strings(path, min_length=strings_min_len)
@@ -192,6 +90,7 @@ def extract_comprehensive_triage_data(path: str, strings_min_len: int = 4) -> Di
     return {
         "path": os.path.abspath(path),
         "basic_info": basic,
+        "shannon_entropy": sh_entropy,
         "imports": imports,
         "sections": sections,
         "version_info": version,
@@ -203,21 +102,17 @@ def extract_comprehensive_triage_data(path: str, strings_min_len: int = 4) -> Di
         "iocs": iocs
     }
 
-# =========================
-# 2) INFO BÁSICA DO ARQUIVO
-# =========================
+# 2) BASIC FILE INFO
 
-@tool
-@log_tool("extract_basic_pe_info")
 def extract_basic_pe_info(path: str) -> Dict[str, Any]:
     """
-    Hashes, tamanho, tipo, timestamp de compilação, dica de packer, contagem de imports.
+    Hashes, size, type, compile timestamp, packer hint, and import count.
     """
-    if not _exists(path):
+    if not file_exists(path):
         return {"error": f"file not found: {path}"}
 
-    data = _read_file(path)
-    t = _sniff_header(data)
+    data = read_file(path)
+    t = sniff_header(data)
     info = {
         "path": os.path.abspath(path),
         "type": t,
@@ -231,7 +126,6 @@ def extract_basic_pe_info(path: str) -> Dict[str, Any]:
         info["note"] = "Non-PE or undetected"
         return info
 
-    pefile = _try_import_pefile()
     if not pefile:
         info["error"] = "'pefile' not available"
         return info
@@ -241,18 +135,17 @@ def extract_basic_pe_info(path: str) -> Dict[str, Any]:
         ts = getattr(pe.FILE_HEADER, "TimeDateStamp", None)
         info["compile_timestamp"] = int(ts) if ts else None
 
-        # Heurística simples de packer
+        # Simple packer heuristic
         sections = []
         for s in pe.sections:
             name = s.Name.rstrip(b"\x00").decode(errors="ignore")
             raw = s.get_data() or b""
-            sections.append({"name": name, "entropy": _entropy(raw)})
+            sections.append({"name": name, "entropy": entropy(raw)})
         info["packer_hint"] = any(
             (sec["name"].lower().startswith(".upx") or "pack" in sec["name"].lower() or sec["entropy"] >= 7.2)
             for sec in sections
         )
 
-        # Contagem de imports
         count = 0
         if hasattr(pe, "DIRECTORY_ENTRY_IMPORT"):
             for entry in getattr(pe, "DIRECTORY_ENTRY_IMPORT", []):
@@ -264,24 +157,19 @@ def extract_basic_pe_info(path: str) -> Dict[str, Any]:
 
     return info
 
-# =========================
-# 3) ANÁLISE DE IMPORTS
-# =========================
+# 3) IMPORT ANALYSIS
 
-@tool
-@log_tool("extract_imports_analysis")
 def extract_imports_analysis(path: str) -> Dict[str, Any]:
     """
-    Categoriza imports por áreas (network, crypto, system, etc.)
+    Categorize imports by area (network, crypto, system, etc.).
     """
-    if not _exists(path):
+    if not file_exists(path):
         return {"error": f"file not found: {path}"}
 
-    data = _read_file(path)
-    if _sniff_header(data) != "PE":
+    data = read_file(path)
+    if sniff_header(data) != "PE":
         return {"note": "Non-PE or undetected"}
-
-    pefile = _try_import_pefile()
+    
     if not pefile:
         return {"error": "'pefile' not available"}
 
@@ -318,31 +206,26 @@ def extract_imports_analysis(path: str) -> Dict[str, Any]:
                 if not cat_found:
                     categorized["other"].append(f"{lib}!{name}")
 
-        # Limitar um pouco o volume
+        # Limit the volume a bit
         categorized = {k: v[:20] for k, v in categorized.items() if v}
         return {"imports": categorized}
 
     except Exception as e:
         return {"error": f"imports parse error: {e}"}
 
-# =========================
-# 4) ANÁLISE DE SEÇÕES
-# =========================
+# 4) SECTION ANALYSIS
 
-@tool
-@log_tool("extract_sections_analysis")
 def extract_sections_analysis(path: str) -> Dict[str, Any]:
     """
-    Retorna nome, tamanhos, entropia e flags básicas por seção.
+    Return name, sizes, entropy, and basic flags for each section.
     """
-    if not _exists(path):
+    if not file_exists(path):
         return {"error": f"file not found: {path}"}
 
-    data = _read_file(path)
-    if _sniff_header(data) != "PE":
+    data = read_file(path)
+    if sniff_header(data) != "PE":
         return {"note": "Non-PE or undetected"}
 
-    pefile = _try_import_pefile()
     if not pefile:
         return {"error": "'pefile' not available"}
 
@@ -354,7 +237,7 @@ def extract_sections_analysis(path: str) -> Dict[str, Any]:
             raw = s.get_data() or b""
             ch = int(getattr(s, "Characteristics", 0))
             flags = []
-            # IMAGE_SCN_MEM_*
+            # IMAGE_SCN_MEM_* flags
             if ch & 0x20000000:  # EXECUTE
                 flags.append("exec")
             if ch & 0x80000000:  # WRITE
@@ -365,48 +248,39 @@ def extract_sections_analysis(path: str) -> Dict[str, Any]:
                 "name": name,
                 "virtual_size": int(getattr(s, "Misc_VirtualSize", 0)),
                 "raw_size": int(s.SizeOfRawData),
-                "entropy": _entropy(raw),
+                "entropy": entropy(raw),
                 "characteristics": flags
             })
         return {"sections": out}
     except Exception as e:
         return {"error": f"sections parse error: {e}"}
 
-# =========================
-# 5) ENTROPIA (Shannon)
-# =========================
+# 5) SHANNON ENTROPY
 
-@tool
-@log_tool("calculate_entropy")
-def calculate_entropy(path: str, head_bytes: Optional[int] = None) -> Dict[str, Any]:
+def calculateentropy(path: str, head_bytes: Optional[int] = None) -> Dict[str, Any]:
     """
-    Entropia do arquivo (inteiro) ou apenas do cabeçalho (head_bytes).
+    File entropy (entire file) or only header bytes (head_bytes).
     """
-    if not _exists(path):
+    if not file_exists(path):
         return {"error": f"file not found: {path}"}
-    data = _read_file(path)
+    data = read_file(path)
     if head_bytes and head_bytes > 0:
         data = data[:head_bytes]
-    return {"path": os.path.abspath(path), "entropy": _entropy(data), "sampled_bytes": len(data)}
+    return {"path": os.path.abspath(path), "entropy": entropy(data), "sampled_bytes": len(data)}
 
-# =========================
 # 6) VERSION INFO (PE)
-# =========================
 
-@tool
-@log_tool("extract_version_info")
 def extract_version_info(path: str) -> Dict[str, Any]:
     """
-    Extrai VS_VERSION_INFO (StringFileInfo) quando disponível.
+    Extract VS_VERSION_INFO (StringFileInfo) when available.
     """
-    if not _exists(path):
+    if not file_exists(path):
         return {"error": f"file not found: {path}"}
 
-    data = _read_file(path)
-    if _sniff_header(data) != "PE":
+    data = read_file(path)
+    if sniff_header(data) != "PE":
         return {"note": "Non-PE or undetected"}
 
-    pefile = _try_import_pefile()
     if not pefile:
         return {"error": "'pefile' not available"}
 
@@ -435,12 +309,9 @@ def extract_version_info(path: str) -> Dict[str, Any]:
     except Exception as e:
         return {"error": f"version parse error: {e}"}
 
-# =========================
-# 7) STRINGS "ESTÁVEIS"
-# =========================
+# 7) "STABLE" STRINGS
 
-def _is_stable_string_impl(s: str) -> bool:
-    # Evitar caminhos e itens voláteis
+def is_stable_string_impl(s: str) -> bool:
     volatile = [
         r"C:\\Users\\", r"C:\\Program Files\\", r"C:\\Windows\\",
         r"\\AppData\\", r"\\Temp\\", r"\\tmp\\",
@@ -464,76 +335,52 @@ def _is_stable_string_impl(s: str) -> bool:
         if p.lower() in s.lower():
             return True
 
-    # Heurística: strings "técnicas" com sinais de config
+    # Heuristic: "technical" strings with config-like characters
     if any(ch in s for ch in "{}[]()<>:;,.="):
         return True
 
     return False
 
-@tool
-@log_tool("is_stable_string")
 def is_stable_string(s: str) -> Dict[str, Any]:
-    """Retorna se a string é candidata 'estável' e relevante."""
+    """Return whether a string is a 'stable' and relevant candidate."""
     try:
-        return {"string": s, "stable": bool(_is_stable_string_impl(s))}
+        return {"string": s, "stable": bool(is_stable_string_impl(s))}
     except Exception as e:
         return {"error": str(e)}
 
-@tool
-@log_tool("extract_stable_strings")
 def extract_stable_strings(path: str, min_length: int = 4, max_items: int = 50) -> Dict[str, Any]:
     """
-    Extrai strings ASCII e filtra por relevância/estabilidade.
+    Extract ASCII strings and filter by relevance/stability.
     """
-    if not _exists(path):
+    if not file_exists(path):
         return {"error": f"file not found: {path}"}
-    data = _read_file(path)
-    strs = _ascii_strings(data, min_len=min_length)
-    stables = [s for s in strs if _is_stable_string_impl(s)]
+    data = read_file(path)
+    strs = get_ascii_strings(data, min_len=min_length)
+    stables = [s for s in strs if is_stable_string_impl(s)]
     return {"path": os.path.abspath(path), "strings": stables[:max_items], "total_candidates": len(stables)}
 
-# =========================
-# 8) ASSINATURAS DE CÓDIGO
-# =========================
+# 8) CODE SIGNATURES
 
 def _rva_to_file_offset(pe, rva: int) -> Optional[int]:
     """
-    Converte RVA -> offset de arquivo usando pefile.
+    Convert RVA -> file offset using pefile.
     """
     try:
         return pe.get_offset_from_rva(rva)
     except Exception:
         return None
 
-@tool
-@log_tool("extract_hex_signature")
-def extract_hex_signature(path: str, file_offset: int, length: int = 16) -> Dict[str, Any]:
-    """
-    Retorna bytes hex a partir de um offset em arquivo.
-    """
-    if not _exists(path):
-        return {"error": f"file not found: {path}"}
-    data = _read_file(path)
-    if file_offset < 0 or file_offset >= len(data):
-        return {"error": f"invalid offset: {file_offset}"}
-    end = min(len(data), file_offset + max(0, length))
-    sig = " ".join(f"{b:02x}" for b in data[file_offset:end])
-    return {"offset": file_offset, "length": end - file_offset, "hex": sig}
-
-@tool
-@log_tool("extract_code_signatures")
 def extract_code_signatures(path: str, max_sigs: int = 3, window: int = 32) -> Dict[str, Any]:
     """
-    Heurística simples: extrai assinaturas hex em torno de EntryPoint (e outras heurísticas).
+    Simple heuristic: extract hex signatures around the EntryPoint (and other heuristics).
     """
-    if not _exists(path):
+    if not file_exists(path):
         return {"error": f"file not found: {path}"}
 
-    data = _read_file(path)
-    if _sniff_header(data) != "PE":
+    data = read_file(path)
+    if sniff_header(data) != "PE":
         return {"note": "Non-PE or undetected"}
-
-    pefile = _try_import_pefile()
+    
     if not pefile:
         return {"error": "'pefile' not available"}
 
@@ -551,7 +398,7 @@ def extract_code_signatures(path: str, max_sigs: int = 3, window: int = 32) -> D
                 "hex": " ".join(f"{b:02x}" for b in data[start:end])
             })
 
-        # Heurística extra: primeira seção executável
+        # Extra heuristic: first executable section
         for s in pe.sections:
             ch = int(getattr(s, "Characteristics", 0))
             if ch & 0x20000000:  # EXECUTE
@@ -562,7 +409,6 @@ def extract_code_signatures(path: str, max_sigs: int = 3, window: int = 32) -> D
                     sec_name = s.Name.rstrip(b"\x00").decode(errors="ignore")
                     sigs.append({
                         "label": "ExecSection:" + sec_name,
-                        #"label": f"ExecSection:{s.Name.rstrip(b'\\x00').decode(errors='ignore')}",
                         "file_offset": off,
                         "hex": " ".join(f"{b:02x}" for b in data[off:end])
                     })
@@ -573,31 +419,27 @@ def extract_code_signatures(path: str, max_sigs: int = 3, window: int = 32) -> D
     except Exception as e:
         return {"error": f"signature parse error: {e}"}
 
-# =========================
-# 9) INDICADORES AVANÇADOS
-# =========================
+# 9) ADVANCED INDICATORS
 
-@tool
-@log_tool("detect_packers")
 def detect_packers(path: str) -> Dict[str, Any]:
     """
-    Heurísticas de packers via nomes/strings de seção e palavras-chave em strings.
+    Packer heuristics via section names/strings and string keywords.
     """
-    if not _exists(path):
+    if not file_exists(path):
         return {"error": f"file not found: {path}"}
 
-    data = _read_file(path)
+    data = read_file(path)
     candidates = set()
 
     # Strings
-    s = [x.lower() for x in _ascii_strings(data, min_len=4)][:5000]
+    s = [x.lower() for x in get_ascii_strings(data, min_len=4)][:5000]
     def any_in(strings, subs):
         for sub in subs:
             if any(sub in x for x in strings):
                 return True
         return False
 
-    # Sinais clássicos
+    # Classic signals
     known = {
         "UPX": ["upx", "upx0", "upx1", "upx!"],
         "Themida": ["themida", "themida!"],
@@ -614,16 +456,15 @@ def detect_packers(path: str) -> Dict[str, Any]:
         if any_in(s, sigs):
             candidates.add(name)
 
-    # Seções e entropia
-    if _sniff_header(data) == "PE":
-        pefile = _try_import_pefile()
+    # Sections and entropy
+    if sniff_header(data) == "PE":
         if pefile:
             try:
                 pe = pefile.PE(path, fast_load=True)
                 for sec in pe.sections:
                     n = sec.Name.rstrip(b"\x00").decode(errors="ignore").lower()
                     raw = sec.get_data() or b""
-                    ent = _entropy(raw)
+                    ent = entropy(raw)
                     if n.startswith(".upx"):
                         candidates.add("UPX")
                     if ent >= 7.2:
@@ -633,22 +474,19 @@ def detect_packers(path: str) -> Dict[str, Any]:
 
     return {"packers": sorted(candidates)}
 
-@tool
-@log_tool("detect_suspicious_characteristics")
 def detect_suspicious_characteristics(path: str) -> Dict[str, Any]:
     """
-    Heurísticas gerais: seções RWX, poucos imports, entrypoint 'estranho', etc.
+    General heuristics: RWX sections, very few imports, unusual entry point, etc.
     """
-    if not _exists(path):
+    if not file_exists(path):
         return {"error": f"file not found: {path}"}
 
-    data = _read_file(path)
+    data = read_file(path)
     suspicious = []
 
-    if _sniff_header(data) != "PE":
+    if sniff_header(data) != "PE":
         return {"note": "Non-PE or undetected", "suspicious": suspicious}
 
-    pefile = _try_import_pefile()
     if not pefile:
         return {"error": "'pefile' not available"}
 
@@ -660,9 +498,7 @@ def detect_suspicious_characteristics(path: str) -> Dict[str, Any]:
             if (ch & 0x20000000) and (ch & 0x80000000):  # EXEC & WRITE
                 sec_name = s.Name.rstrip(b"\x00").decode(errors="ignore")
                 suspicious.append("RWX section: " + sec_name)
-                #suspicious.append(f"RWX section: {s.Name.rstrip(b'\\x00').decode(errors='ignore')}")
 
-        # Few imports
         imp_cnt = 0
         if hasattr(pe, "DIRECTORY_ENTRY_IMPORT"):
             for entry in getattr(pe, "DIRECTORY_ENTRY_IMPORT", []):
@@ -670,10 +506,10 @@ def detect_suspicious_characteristics(path: str) -> Dict[str, Any]:
         if imp_cnt <= 5:
             suspicious.append(f"Very few imports ({imp_cnt}) - possible packing")
 
-        # Entry point muito deslocado
+        # Entry point far from start (conservative threshold)
         try:
             ep = pe.OPTIONAL_HEADER.AddressOfEntryPoint
-            if ep and ep > 0x100000:  # limiar conservador
+            if ep and ep > 0x100000:  # conservative threshold
                 suspicious.append(f"Unusual entry point RVA: 0x{ep:x}")
         except:
             pass
@@ -683,16 +519,14 @@ def detect_suspicious_characteristics(path: str) -> Dict[str, Any]:
 
     return {"suspicious": suspicious}
 
-@tool
-@log_tool("detect_anti_analysis")
 def detect_anti_analysis(path: str) -> Dict[str, Any]:
     """
-    Anti-debug/Anti-VM/Anti-sandbox via palavras-chave em strings.
+    Anti-debug/Anti-VM/Anti-sandbox via keywords in strings.
     """
-    if not _exists(path):
+    if not file_exists(path):
         return {"error": f"file not found: {path}"}
-    data = _read_file(path)
-    s = [x.lower() for x in _ascii_strings(data, min_len=4)][:5000]
+    data = read_file(path)
+    s = [x.lower() for x in get_ascii_strings(data, min_len=4)][:5000]
 
     patterns = {
         "Anti-Debug": ["isdebuggerpresent", "checkremotedebuggerpresent", "debugger", "ollydbg", "x64dbg", "ida", "windbg", "ghidra"],
@@ -711,38 +545,36 @@ def detect_anti_analysis(path: str) -> Dict[str, Any]:
 
     return {"anti_analysis": hits}
 
-@tool
-@log_tool("detect_obfuscation")
 def detect_obfuscation(path: str) -> Dict[str, Any]:
     """
-    Heurísticas de ofuscação: muitas seções de alta entropia, XOR patterns simples,
-    e strings “ruidosas”.
+    Obfuscation heuristics: many high-entropy regions, simple XOR-like patterns,
+    and "noisy" strings.
     """
-    if not _exists(path):
+    if not file_exists(path):
         return {"error": f"file not found: {path}"}
 
-    data = _read_file(path)
+    data = read_file(path)
     indicators = []
 
-    # Muitas regiões de alta entropia
-    high_entropy_chunks = 0
+    # Many high-entropy regions
+    highentropy_chunks = 0
     chunk = 4096
     for i in range(0, len(data), chunk):
-        if _entropy(data[i:i+chunk]) >= 7.2:
-            high_entropy_chunks += 1
-    if high_entropy_chunks >= 8:
-        indicators.append(f"Many high-entropy blocks: {high_entropy_chunks}")
+        if entropy(data[i:i+chunk]) >= 7.2:
+            highentropy_chunks += 1
+    if highentropy_chunks >= 8:
+        indicators.append(f"Many high-entropy blocks: {highentropy_chunks}")
 
-    # Padrões XOR simples (procura sequências 0x33/0x35 em streams)
+    # Simple XOR-like patterns (look for 0x30-0x3f sequences in streams)
     xor_like = len(re.findall(rb"[\x30-\x3f]{3,}", data[:1_000_000]))  # limite 1MB
     if xor_like > 50:
         indicators.append(f"Possible XOR/obfuscation byte streams: {xor_like}")
 
-    # Strings “ruidosas” (muitas com mix de símbolos)
-    strings_all = _ascii_strings(data, min_len=8)[:5000]
+    # "Noisy" strings (many mixed symbols)
+    strings_all = get_ascii_strings(data, min_len=8)[:5000]
     noisy = 0
     for s in strings_all:
-        # muito símbolo fora de alfanumérico
+        # many non-alphanumeric symbols
         sym = sum(1 for c in s if not c.isalnum() and c not in " .:/_-")
         if len(s) > 16 and sym / max(1, len(s)) > 0.35:
             noisy += 1
@@ -751,18 +583,16 @@ def detect_obfuscation(path: str) -> Dict[str, Any]:
 
     return {"obfuscation": indicators}
 
-@tool
-@log_tool("extract_advanced_indicators")
 def extract_advanced_indicators(path: str) -> Dict[str, Any]:
     """
-    Consolida packers, características suspeitas, anti-análise e ofuscação.
+    Consolidate packers, suspicious characteristics, anti-analysis, and obfuscation.
     """
-    if not _exists(path):
+    if not file_exists(path):
         return {"error": f"file not found: {path}"}
-    pack = detect_packers.invoke({"path": path})
-    sus = detect_suspicious_characteristics.invoke({"path": path})
-    anti = detect_anti_analysis.invoke({"path": path})
-    obf = detect_obfuscation.invoke({"path": path})
+    pack = detect_packers(path)
+    sus = detect_suspicious_characteristics(path)
+    anti = detect_anti_analysis(path)
+    obf = detect_obfuscation(path)
     return {
         "packer_indicators": pack.get("packers", []),
         "suspicious_characteristics": sus.get("suspicious", []) if isinstance(sus, dict) else [],

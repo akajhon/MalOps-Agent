@@ -8,14 +8,14 @@ import pandas as pd
 from collections import Counter
 
 st.set_page_config(page_title="MalOps Agent", layout="centered")
-st.title("🔍 MalOps Agent — Upload & Analyze (Hybrid: Multi-Agente + Paralelo)")
-st.caption("YARA, CAPA, IOCs e Threat Intel (VT, MalwareBazaar, ThreatFox, AbuseIPDB)")
+st.title("🔍 MalOps Agent — Upload and Analyze Malware Samples")
+st.caption("Autonomous, Graph-Orchestrated Agentic System for Malware Analysis and Threat Intelligence")
 
 API_BASE_DEFAULT = os.getenv("API_BASE", "http://localhost:8000")
-api_base = st.text_input("API base URL", value=API_BASE_DEFAULT)
-hint = st.text_input("Hint/Contexto (opcional)", value="")
-model = st.text_input("Modelo LLM", value="gemini-2.0-flash")
-file = st.file_uploader("Selecione o arquivo de amostra", type=None)
+api_base = st.text_input("API base URL:", value=API_BASE_DEFAULT)
+hint = st.text_input("Hint/Context (optional):", value="")
+model = st.text_input("LLM Model:", value="gemini-2.0-flash")
+file = st.file_uploader("Select the sample:", type=None)
 
 # Preview: file info + local hashes (pre-upload)
 def _compute_hashes(buf: bytes) -> Dict[str, str]:
@@ -36,13 +36,13 @@ if file is not None:
     hs = _compute_hashes(b)
 
     # ---- Preview minimalista ----
-    st.subheader("📄 Arquivo selecionado")
+    st.subheader("📄 Selected File")
     st.markdown(f"{file.name}")
 
     st.write("")  # espaçamento
-    st.markdown(f"**Tamanho:** {_human_size(len(b))}")
-    st.markdown(f"**Nome:** {file.name}")
-    st.markdown(f"**Extensão:** {Path(file.name).suffix or '—'}")
+    st.markdown(f"**Size:** {_human_size(len(b))}")
+    st.markdown(f"**Name:** {file.name}")
+    st.markdown(f"**Extension:** {Path(file.name).suffix or '—'}")
 
     st.write("")  # espaçamento
     st.subheader("🔐 Hashes")
@@ -91,7 +91,7 @@ def render_result(result: Dict[str, Any]) -> None:
 
     data = _coerce(result) or {}
     if not data:
-        st.error("Não consegui interpretar a resposta da API.")
+        st.error("The API answer was not interpretable.")
         st.json(result)
         return
 
@@ -125,7 +125,7 @@ def render_result(result: Dict[str, Any]) -> None:
 
     # ---------- download ----------
     st.download_button(
-        "⬇️ Baixar JSON",
+        "⬇️ Download JSON",
         data=json.dumps(data, indent=2, ensure_ascii=False).encode("utf-8"),
         file_name="analysis.json",
         mime="application/json",
@@ -133,7 +133,7 @@ def render_result(result: Dict[str, Any]) -> None:
     )
 
     # ---------- abas ----------
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Sumário", "Técnico", "ATT&CK", "IOCs", "JSON"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Summary", "Technical Analysis", "ATT&CK", "IOCs", "JSON"])
 
     # ========== SUMÁRIO ==========
     with tab1:
@@ -152,20 +152,19 @@ def render_result(result: Dict[str, Any]) -> None:
                 </div>
             """, unsafe_allow_html=True)
         with c3:
-            st.metric("Confiança", summary.get("confidence", "-"))
+            st.metric("Confidence", summary.get("confidence", "-"))
 
         if summary.get("one_paragraph_summary"):
             st.write(summary["one_paragraph_summary"])
 
         df_inds = _df_listdict(data.get("key_indicators"))
         if not df_inds.empty:
-            st.subheader("📌 Indicadores chave")
+            st.subheader("📌 Key Indicators:")
             st.dataframe(df_inds, use_container_width=True)
 
         for title, key in [
-            ("🔧 Recomendações (prioritárias)", "recommendations_priority_ordered"),
-            ("⚠️ Gaps de qualidade de dados", "data_quality_gaps"),
-            ("➡️ Próximos passos recomendados", "recommended_next_steps"),
+            ("🔧 Recommendations", "recommendations_priority_ordered"),
+            ("➡️ Next steps", "recommended_next_steps"),
         ]:
             vals = _as_list(data.get(key))
             if vals:
@@ -188,17 +187,17 @@ def render_result(result: Dict[str, Any]) -> None:
 
         # um abaixo do outro:
         section_list("Imports", hs.get("imports"))
-        section_list("Sections/Entropy/Anomalias", hs.get("sections_entropy_anomalies"))
-        section_list("Strings de Interesse", hs.get("strings_of_interest"))
+        section_list("Sections/Entropy/Anomalies", hs.get("sections_entropy_anomalies"))
+        section_list("Interesting Strings", hs.get("strings_of_interest"))
         section_list("Code signatures", hs.get("code_signatures"))
         section_list("YARA hits", hs.get("yara_hits"))
         section_list("CAPA findings", hs.get("capa_findings"))
         section_list("Advanced indicators", hs.get("advanced_indicators"))
 
         # tabelas estruturadas
-        for t, k in [("Capacidades inferidas","capabilities"),
-                     ("Evasão / Anti-análise","evasion_anti_analysis"),
-                     ("Persistência","persistence")]:
+        for t, k in [("Infered Capabilities","capabilities"),
+                     ("Evasion / Anti-analysis","evasion_anti_analysis"),
+                     ("Persistence","persistence")]:
             df = _df_listdict(tech.get(k))
             if not df.empty:
                 st.subheader(t)
@@ -213,7 +212,7 @@ def render_result(result: Dict[str, Any]) -> None:
         capa_raw = _as_list(hs.get("capa_findings"))
         if capa_raw:
             namespaces = [str(x).split("/")[0] if "/" in str(x) else str(x) for x in capa_raw]
-            _bar_from_counts(dict(Counter(namespaces)), "CAPA — contagem por namespace")
+            _bar_from_counts(dict(Counter(namespaces)), "CAPA — Namespace Count")
 
     # ========== ATT&CK ==========
     with tab3:
@@ -222,7 +221,7 @@ def render_result(result: Dict[str, Any]) -> None:
             st.dataframe(df_mitre, use_container_width=True)
             if "tactic" in df_mitre.columns:
                 tcounts = df_mitre["tactic"].fillna("UNKNOWN").astype(str).value_counts().to_dict()
-                _bar_from_counts(tcounts, "Táticas (contagem)")
+                _bar_from_counts(tcounts, "Tactics (count)")
 
     # ========== IOCs ==========
     with tab4:
@@ -244,27 +243,27 @@ def render_result(result: Dict[str, Any]) -> None:
     with tab5:
         st.json(data)
         
-if st.button("Enviar e Analisar", disabled=(file is None)):
+if st.button("Analyze", disabled=(file is None)):
     if not file:
-        st.warning("Selecione um arquivo primeiro.")
+        st.warning("Select a file first!")
     else:
         files = {"file": (file.name, file.getvalue())}
         data = {"hint": hint, "model": model}
         try:
             url = f"{api_base}/analyze/upload"
-            with st.spinner("Analisando..."):
+            with st.spinner("Analizing..."):
                 r = requests.post(url, files=files, data=data, timeout=120)
             if r.status_code == 200:
-                st.success("Análise concluída")
+                st.success("Analysis Finished!")
                 try:
                     result = r.json()
                 except Exception:
-                    st.error("Resposta não é JSON")
+                    st.error("Answer was not a JSON")
                     st.text(r.text[:2000])
                 else:
                     render_result(result)
             else:
-                st.error(f"Erro HTTP {r.status_code}")
+                st.error(f"HTTP Error: {r.status_code}")
                 st.text(r.text[:2000])
         except Exception as e:
-            st.error(f"Falha ao chamar API: {e}")
+            st.error(f"Failure calling the API: {e}")

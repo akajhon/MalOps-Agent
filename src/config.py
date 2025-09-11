@@ -5,16 +5,16 @@ from dotenv import load_dotenv
 # Resolve project-level .env regardless of CWD
 ENV_FILE = str((Path(__file__).resolve().parent.parent / ".env").resolve())
 
-def load_env() -> None:
+def load_env():
     """Load .env once from the project root."""
-    load_dotenv(dotenv_path=ENV_FILE, override=False)
+    load_dotenv(dotenv_path=ENV_FILE, override=True)
 
 def get_settings():
     """Return settings as a simple dictionary."""
     load_env()
     return {
         "LOG_LEVEL": os.getenv("LOG_LEVEL", "INFO"),
-        "DB_PATH": os.getenv("DB_PATH", str((Path(__file__).resolve().parent.parent / "data" / "analyses.db").resolve())),
+        "DB_PATH": os.getenv("DB_PATH", ""),
         "GEMINI_API_KEY": os.getenv("GEMINI_API_KEY", ""),
         "VT_API_KEY": os.getenv("VT_API_KEY", ""),
         "ABUSE_API_KEY": os.getenv("ABUSE_API_KEY", ""),

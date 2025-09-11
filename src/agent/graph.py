@@ -1,18 +1,26 @@
+import logging, os, json, hashlib
+from pathlib import Path
+from datetime import datetime
 from typing import Optional, TypedDict
-import logging
 from langgraph.graph import StateGraph, END
 from langchain_core.runnables import RunnableLambda
+from langchain_google_genai import ChatGoogleGenerativeAI as ChatLLM
+from langchain_core.messages import SystemMessage, HumanMessage
+from ..tools.helpers import read_file
+from ..tools.static_analysis import extract_iocs_from_strings
+from ..config import get_settings
+# Agents
+from .static_agent import run_static_agent
+from .cti_agent import cti_from_hash, normalize_cti
+#Prompt
+from .prompts import static_analysis_prompt
 
-# tools locais simples
-from ..tools import compute_hashes, extract_iocs
-from ..logging_config import configure_logging
 log = logging.getLogger("agent.graph")
 
-# agentes separados
-from .static_agent import run_static_agent
-from .cti_agent import ti_from_hash, normalize_ti
+GEMINI_API_KEY = get_settings().get("GEMINI_API_KEY", "")
+SUPERVISOR_DUMP_DIR = get_settings().get("SUPERVISOR_DUMP_DIR", "")
 
-# --------- STATE (simples) ---------
+# State
 class State(TypedDict, total=False):
     file_path: str
     hint: str
@@ -37,15 +45,31 @@ def _bootstrap(state: State) -> State:
     log.info("bootstrap: file_path=%s", fp)
     return {"file_path": fp}
 
+
 def _hashes(state: State) -> State:
-    h = compute_hashes.func(state["file_path"])
+    path = state["file_path"]
+    data = read_file(path)
+    h = {
+        "path": path,
+        "size_bytes": len(data),
+        "md5": hashlib.md5(data).hexdigest(),
+        "sha1": hashlib.sha1(data).hexdigest(),
+        "sha256": hashlib.sha256(data).hexdigest(),
+    }
     log.info("hashes: sha256=%s", h.get("sha256"))
     return {"hashes": h, "sha256": h.get("sha256")}
 
+
 def _iocs(state: State) -> State:
-    iocs = extract_iocs.func(state["file_path"])  # type: ignore[attr-defined]
-    log.info("iocs: urls=%s domains=%s ips=%s", len(iocs.get("urls", [])), len(iocs.get("domains", [])), len(iocs.get("ipv4s", [])))
+    iocs = extract_iocs_from_strings(state["file_path"], min_length=4)
+    log.info(
+        "iocs: urls=%s domains=%s ips=%s",
+        len(iocs.get("urls", [])),
+        len(iocs.get("domains", [])),
+        len(iocs.get("ipv4s", [])),
+    )
     return {"iocs": iocs}
+
 
 # --------- NODES: AGENTES ---------
 def _static_agent(state: State) -> State:
@@ -58,36 +82,21 @@ def _static_agent(state: State) -> State:
     return {"static_summary": out}
 
 def _ti_hash(state: State) -> State:
-    out = ti_from_hash(state.get("sha256", ""))
+    out = cti_from_hash(state.get("sha256", ""))
     log.info("ti_hash completed")
     return {"ti_vt": out.get("ti_vt", {}), "ti_mb": out.get("ti_mb", {}), "ti_ha": out.get("ti_ha", {}), "ti_otx": out.get("ti_otx", {})}
-
-# def _ti_iocs(state: State) -> State:
-#     i = state.get("iocs") or {}
-#     out = ti_from_iocs(
-#         urls=i.get("urls", []),
-#         domains=i.get("domains", []),
-#         ips=i.get("ipv4s", []),
-#     )
-#     log.info("ti_iocs completed")
-#     return {"ti_tf": out["ti_tf"], "ti_abuse": out["ti_abuse"]}
 
 def _ti_normalize(state: State) -> State:
     log.info("ti_normalize starting")
     return {
-        "threat_intel": normalize_ti(
+        "threat_intel": normalize_cti(
             state.get("ti_vt"), state.get("ti_mb"), state.get("ti_ha"), state.get("ti_otx"),
             state.get("sha256", "")
         )
     }
 
 # --------- SUPERVISOR (LLM resumidor) ---------
-import os, json
-from pathlib import Path
-from datetime import datetime
-from langchain_google_genai import ChatGoogleGenerativeAI as ChatLLM
-from langchain_core.messages import SystemMessage, HumanMessage
-from .prompts import static_analysis_prompt2
+
 
 def _supervisor(state: State) -> State:
     # Build structured payload object (kept for debugging/dumps)
@@ -100,12 +109,12 @@ def _supervisor(state: State) -> State:
         "path": state.get("file_path", "")
     }
     llm = ChatLLM(model=state.get("model", "gemini-2.0-flash"),
-                  temperature=0,
-                  google_api_key=os.getenv("GEMINI_API_KEY"))
+                temperature=0,
+                google_api_key=GEMINI_API_KEY)
     payload_json = json.dumps(payload, ensure_ascii=False)
     # Persist the full payload to a file for inspection
     try:
-        dump_dir_env = os.getenv("SUPERVISOR_DUMP_DIR", "").strip()
+        dump_dir_env = SUPERVISOR_DUMP_DIR.strip()
         if dump_dir_env:
             dump_dir = Path(dump_dir_env)
         else:
@@ -196,14 +205,14 @@ def _supervisor(state: State) -> State:
 
     # Persist the final prompt text as well
     try:
-        dump_dir_env = os.getenv("SUPERVISOR_DUMP_DIR", "").strip()
+        dump_dir_env = SUPERVISOR_DUMP_DIR.strip()
         dump_dir = Path(dump_dir_env) if dump_dir_env else (Path(__file__).resolve().parents[2] / "logs")
         dump_dir.mkdir(parents=True, exist_ok=True)
         sha = (state.get("sha256") or "na")[:12]
         ts = datetime.now().strftime("%Y%m%d-%H%M%S")
         prompt_path = dump_dir / f"supervisor_prompt_{ts}_{sha}.txt"
         with prompt_path.open("w", encoding="utf-8") as f:
-            f.write(static_analysis_prompt2())
+            f.write(static_analysis_prompt())
             f.write("\n\n")
             f.write(human_content)
         log.info("supervisor prompt written to %s", prompt_path)
@@ -211,7 +220,7 @@ def _supervisor(state: State) -> State:
         log.warning("failed to write supervisor prompt: %s", e)
 
     out = llm.invoke([
-        SystemMessage(content=static_analysis_prompt2()),
+        SystemMessage(content=static_analysis_prompt()),
         HumanMessage(content=human_content)
     ]).content
     try:
@@ -251,13 +260,8 @@ def build_graph():
     return g.compile()
 
 def run_hybrid(file_path: str, hint: Optional[str] = None, model: str = "gemini-2.0-flash") -> dict:
-    # Ensure logging is configured for non-API callers
-    try:
-        configure_logging(None)
-    except Exception:
-        pass
     app = build_graph()
-    # Always export the graph artifacts on each run for visibility
+    # Export PNG graph artifact on each run for visibility (best-effort)
     try:
         export_graph_artifacts(None)
     except Exception as e:
@@ -292,39 +296,25 @@ def _graph_edges() -> list[tuple[str, str]]:
 
 
 def export_graph_artifacts(out_dir: Optional[str] = None) -> dict:
-    """Export the current DAG to Mermaid and, if possible, a PNG image.
+    """Export the current DAG as a PNG image only.
 
-    - Mermaid saved as `graph.mmd`
-    - PNG saved as `graph.png` when `graphviz` Python package is available
-    Returns dict with written paths.
+    - PNG saved as `graph.png` when available via LangGraph or Graphviz.
+    Returns dict with path to the PNG when created.
     """
     try:
         base = Path(out_dir) if out_dir else (Path(__file__).resolve().parents[2] / "logs")
         base.mkdir(parents=True, exist_ok=True)
 
-        # Prefer LangGraph's built-in mermaid rendering if available
         app = build_graph()
         try:
             gobj = app.get_graph()
         except Exception:
             gobj = None
 
-        mmd_path = base / "graph.mmd"
         png_path = None
 
+        # Try direct PNG rendering from LangGraph (Mermaid PNG)
         if gobj is not None:
-            try:
-                # Mermaid source
-                mermaid_src = gobj.draw_mermaid()
-                mmd_path.write_text(mermaid_src, encoding="utf-8")
-            except Exception as e:
-                log.info("draw_mermaid() unavailable, building simple mermaid: %s", e)
-                mermaid = ["graph TD"]
-                for u, v in _graph_edges():
-                    mermaid.append(f"  {u} --> {v}")
-                mmd_path.write_text("\n".join(mermaid), encoding="utf-8")
-
-            # Try direct PNG rendering from LangGraph (if runtime supports it)
             try:
                 png_bytes = gobj.draw_mermaid_png()
                 png_path = base / "graph.png"
@@ -332,12 +322,6 @@ def export_graph_artifacts(out_dir: Optional[str] = None) -> dict:
                     f.write(png_bytes)
             except Exception as e:
                 log.info("draw_mermaid_png() unavailable: %s", e)
-        else:
-            # Fallback minimal mermaid
-            mermaid = ["graph TD"]
-            for u, v in _graph_edges():
-                mermaid.append(f"  {u} --> {v}")
-            mmd_path.write_text("\n".join(mermaid), encoding="utf-8")
 
         # Final fallback: Graphviz if present and no PNG yet
         if png_path is None:
@@ -353,7 +337,7 @@ def export_graph_artifacts(out_dir: Optional[str] = None) -> dict:
             except Exception as e:
                 log.info("Graphviz not available or failed to render: %s", e)
 
-        written = {"mermaid": str(mmd_path)}
+        written = {}
         if png_path:
             written["png"] = str(png_path)
         log.info("Graph artifacts written: %s", written)
@@ -361,14 +345,3 @@ def export_graph_artifacts(out_dir: Optional[str] = None) -> dict:
     except Exception as e:
         log.warning("export_graph_artifacts failed: %s", e)
         return {"error": str(e)}
-
-
-def render_graph_mermaid_png() -> bytes:
-    """Return the graph rendered as a Mermaid PNG using LangGraph, if supported.
-
-    Useful in notebooks: e.g., display(Image(render_graph_mermaid_png())).
-    Raises if the runtime cannot render directly.
-    """
-    app = build_graph()
-    gobj = app.get_graph()
-    return gobj.draw_mermaid_png()

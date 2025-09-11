@@ -1,12 +1,14 @@
 import hashlib
 from pathlib import Path
 
-from src.tools.static_analysis import (
+from src.agent.static_agent import (
     compute_hashes,
     file_head_entropy,
-    extract_iocs_from_strings,
     extract_hex_signature,
     is_stable_string,
+)
+from src.tools.static_analysis import (
+    extract_iocs_from_strings,
 )
 
 
