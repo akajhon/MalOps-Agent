@@ -9,7 +9,7 @@ COMPOSE_FILE="docker-compose.yml"
 log(){ echo "[*] $*"; }
 die(){ echo "[ERROR] $*" >&2; exit 1; }
 
-# Handle Ctrl+C gracefully
+# Ctrl+C
 cleanup(){
   echo -e "\n[!] Setup aborted by user. Exiting..."
   exit 1
@@ -36,14 +36,14 @@ git clone --branch main --depth 1 "$REPO_URL" "$PROJECT_DIR"
 cp "$PROJECT_DIR/.env.example" "$PROJECT_DIR/.env"
 log ".env file created from .env.example"
 
-# Prompt user for API Keys
+# Ask for API Keys
 read -rp "Enter your GEMINI_API_KEY: " GEMINI_API_KEY
 read -rp "Enter your VT_API_KEY: " VT_API_KEY
 read -rp "Enter your OTX_API_KEY: " OTX_API_KEY
 read -rp "Enter your HA_API_KEY: " HA_API_KEY
 read -rp "Enter your ABUSE_API_KEY: " ABUSE_API_KEY
 
-# Update .env with provided credentials
+# Update .env with credentials
 sed -i "s/^GEMINI_API_KEY=.*/GEMINI_API_KEY=$GEMINI_API_KEY/" "$PROJECT_DIR/.env"
 sed -i "s/^VT_API_KEY=.*/VT_API_KEY=$VT_API_KEY/" "$PROJECT_DIR/.env"
 sed -i "s/^OTX_API_KEY=.*/OTX_API_KEY=$OTX_API_KEY/" "$PROJECT_DIR/.env"
@@ -63,7 +63,6 @@ docker compose -f "$COMPOSE_FILE" build --pull
 log "Starting containers..."
 docker compose -f "$COMPOSE_FILE" up -d
 
-# Final message
 cat <<EOF
 
 ==========================================
