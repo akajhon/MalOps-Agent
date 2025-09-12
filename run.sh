@@ -3,7 +3,7 @@
 set -eo pipefail
 
 REPO_URL="https://github.com/akajhon/MalOps-Agent.git"
-PROJECT_DIR="$HOME/MalOps-Agent"
+PROJECT_DIR="$(pwd)/MalOps-Agent"
 COMPOSE_FILE="docker-compose.yml"
 
 log(){ echo "[*] $*"; }
@@ -54,7 +54,7 @@ log "API keys saved in $PROJECT_DIR/.env"
 
 # Extract capa-rules.zip
 log "Extracting capa-rules.zip..."
-unzip -o "$PROJECT_DIR/rules/capa-rules.zip" -d "$PROJECT_DIR/rules/capa-rules" >/dev/null
+unzip -o "$PROJECT_DIR/rules/capa-rules.zip" -d "$PROJECT_DIR/rules/" >/dev/null
 
 # Build + start containers
 cd "$PROJECT_DIR"
