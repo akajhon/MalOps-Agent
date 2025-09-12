@@ -69,6 +69,11 @@ cat <<EOF
 ==========================================
 ✅ Setup completed
 
+Addresses:
+- API: http://localhost:8000/
+- API Docs (Swagger): http://localhost:8000/docs
+- UI: http://localhost:8501/
+
 📁 Project: $PROJECT_DIR
 📄 Compose file: $COMPOSE_FILE
 

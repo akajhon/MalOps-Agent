@@ -17,4 +17,3 @@ Quick links:
 - API: [API](api.md)
 - Architecture: [Architecture](architecture.md)
 - Python Reference: [Reference](reference/api_app.md)
-
