@@ -29,6 +29,5 @@ def get_settings():
         "YARA_RULES_DIR": os.getenv("YARA_RULES_DIR", ""),
         "CAPA_RULES_DIR": os.getenv("CAPA_RULES_DIR", ""),
         "CAPA_SIGNATURES_DIR": os.getenv("CAPA_SIGNATURES_DIR", ""),
-        "DEFAULT_TIMEOUT": _int_env("DEFAULT_TIMEOUT", 12),
-        "SUPERVISOR_DUMP_DIR": os.getenv("SUPERVISOR_DUMP_DIR", ""),
+        "DEFAULT_TIMEOUT": _int_env("DEFAULT_TIMEOUT", 60)
     }

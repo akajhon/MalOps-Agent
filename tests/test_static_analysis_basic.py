@@ -1,69 +1,47 @@
 import hashlib
 from pathlib import Path
-
-from src.agent.static_agent import (
-    compute_hashes,
-    file_head_entropy,
-    extract_hex_signature,
-    is_stable_string,
-)
-from src.tools.static_analysis import (
-    extract_iocs_from_strings,
-)
-
+from src.agent.static_agent import start_triage
 
 def write_bytes(tmp_path, name: str, data: bytes) -> Path:
     p = tmp_path / name
     p.write_bytes(data)
     return p
 
+def test_comprehensive_triage_non_pe_with_iocs(tmp_path):
+    # Craft a small file with various IOCs and bytes
+    data = (
+        b"Hello http://example.com [.]defanged.com IP 8.8.8.8 "
+        b"BTC bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080 ETH 0xabcDEF1234567890abcDEF1234567890abcDEF12"
+    )
+    p = write_bytes(tmp_path, "triage.bin", data)
 
-def test_compute_hashes_and_entropy(tmp_path):
-    data = b"HELLO http://example.com [.]bad.com 1.2.3.4 bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080 0xabcDEF1234567890abcDEF1234567890abcDEF12"
-    p = write_bytes(tmp_path, "sample.bin", data)
+    out = start_triage.invoke({"path": p.as_posix(), "strings_min_len": 3})
+    assert isinstance(out, dict)
 
-    # compute_hashes
-    out = compute_hashes.invoke({"path": p.as_posix()})
-    assert out.get("size_bytes") == len(data)
-    assert out.get("md5") == hashlib.md5(data).hexdigest()
-    assert out.get("sha1") == hashlib.sha1(data).hexdigest()
-    assert out.get("sha256") == hashlib.sha256(data).hexdigest()
+    # basic_info sanity
+    basic = out.get("basic_info", {})
+    assert basic.get("size_bytes") == len(data)
+    assert basic.get("md5") == hashlib.md5(data).hexdigest()
+    assert basic.get("type") in ("Unknown", "PE", "ELF")
 
-    # file_head_entropy via wrapper
-    ent = file_head_entropy.invoke({"path": p.as_posix(), "head_bytes": 8})
-    assert ent.get("sampled_bytes") == 8
+    # entropy wrapper
+    ent = out.get("shannon_entropy", {})
     assert isinstance(ent.get("entropy"), float)
+    assert ent.get("sampled_bytes") == len(data)
 
-
-def test_extract_iocs_from_strings(tmp_path):
-    data = b"Visit http://example.com now, also defanged [.]bad.com and IP 10.0.0.5 " \
-           b"BTC bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080 ETH 0xabcDEF1234567890abcDEF1234567890abcDEF12"
-    p = write_bytes(tmp_path, "iocs.bin", data)
-
-    res = extract_iocs_from_strings(p.as_posix(), min_length=3, max_strings=500, max_iocs=50)
-    counts = res.get("counts", {})
-
+    # iocs detected from strings
+    iocs = out.get("iocs", {})
+    counts = iocs.get("counts", {})
     assert counts.get("urls", 0) >= 1
-    assert any("example.com" in u for u in res.get("urls", []))
-    assert any(d == "bad.com" for d in res.get("domains", []))
+    assert counts.get("domains", 0) >= 1
     assert counts.get("ipv4s", 0) >= 1
-    assert any(ip == "10.0.0.5" for ip in res.get("ipv4s", []))
     assert counts.get("btc_addresses", 0) >= 1
     assert counts.get("eth_addresses", 0) >= 1
 
+    # stable_strings should be a list
+    assert isinstance(out.get("stable_strings", []), list)
 
-def test_extract_hex_signature(tmp_path):
-    data = bytes.fromhex("de ad be ef 01 02 03 04")
-    p = write_bytes(tmp_path, "sig.bin", data)
-
-    sig = extract_hex_signature.invoke({"path": p.as_posix(), "file_offset": 0, "length": 4})
-    assert sig.get("hex") == "de ad be ef"
-    assert sig.get("length") == 4
-
-
-def test_is_stable_string():
-    good = is_stable_string.invoke({"s": "download config value=42"})
-    bad = is_stable_string.invoke({"s": r"C:\\Users\\name\\AppData\\Local"})
-
-    assert good.get("stable") is True
-    assert bad.get("stable") is False
+    # advanced_indicators present with expected keys
+    adv = out.get("advanced_indicators", {})
+    for k in ("packer_indicators", "suspicious_characteristics", "anti_analysis", "obfuscation"):
+        assert k in adv

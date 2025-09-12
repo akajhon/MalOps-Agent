@@ -1,11 +1,7 @@
-import os
-from pathlib import Path
-
+import pytest
 from src.api import storage
 
-
 def test_save_and_get_analysis_by_sha256(tmp_path, monkeypatch):
-    # Use a temp sqlite DB to avoid touching repo data/
     db_path = tmp_path / "analyses_test.db"
     monkeypatch.setenv("DB_PATH", str(db_path))
 

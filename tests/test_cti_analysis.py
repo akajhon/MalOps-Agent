@@ -1,6 +1,6 @@
 import pytest
-
 from src.tools import cti_analysis as cti
+
 def test_vt_lookup_no_key():
     out = cti.vt_lookup("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
     assert out.get("error") == "VT_API_KEY not set"
