@@ -2,16 +2,21 @@
 import streamlit as st
 import requests
 from pathlib import Path
-import io, os, json, hashlib
-from typing import Any, Dict, List
+import os, json, hashlib
+from typing import Any, Dict
 import pandas as pd
 from collections import Counter
 
-st.set_page_config(page_title="MalOps Agent", layout="centered")
+LOGO_PATH = Path(__file__).resolve().parent.parent / "logo_malops.png"
+st.set_page_config(page_title="MalOps Agent", page_icon=str(LOGO_PATH), layout="centered")
+
+# Logo above title
+if LOGO_PATH.exists():
+    st.image(str(LOGO_PATH), width=96)
+
 st.title("🔍 MalOps Agent — Upload and Analyze Malware Samples")
 st.caption("Autonomous, Graph-Orchestrated Agentic System for Malware Analysis and Threat Intelligence")
 
-# Lightweight styling used by preview and cards
 st.markdown(
     """
     <style>
@@ -28,13 +33,12 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-API_BASE_DEFAULT = os.getenv("API_BASE", "http://localhost:8000")
-api_base = st.text_input("API base URL:", value=API_BASE_DEFAULT)
+API_BASE_DEFAULT = os.getenv("API_BASE", "http://mal_ops_api:8000")
+api_base = API_BASE_DEFAULT
 hint = st.text_input("Hint/Context (optional):", value="")
 model = st.text_input("LLM Model:", value="gemini-2.0-flash")
 file = st.file_uploader("Select the sample:", type=None)
 
-# Preview: file info + local hashes (pre-upload)
 def _compute_hashes(buf: bytes) -> Dict[str, str]:
     return {
         "md5": hashlib.md5(buf).hexdigest(),
@@ -52,7 +56,6 @@ if file is not None:
     b = file.getvalue()
     hs = _compute_hashes(b)
 
-    # ---- Styled preview ----
     st.subheader("📄 Selected File")
     with st.container():
         st.markdown(
@@ -89,7 +92,6 @@ if file is not None:
         st.markdown("**Size:** " + _human_size(len(b)))
 
 def render_result(result: Dict[str, Any]) -> None:
-    # ---------- estilos (card + chips) ----------
     st.markdown("""
     <style>
       .fam-card{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);
@@ -101,8 +103,7 @@ def render_result(result: Dict[str, Any]) -> None:
     </style>
     """, unsafe_allow_html=True)
 
-    # ---------- coerção do JSON (lida com `raw` e ```json ... ```) ----------
-    def _strip_code_fences(s: str) -> str:
+    def strip_code_fences(s: str) -> str:
         s = s.strip()
         if s.startswith("```"):
             nl = s.find("\n")
@@ -110,35 +111,34 @@ def render_result(result: Dict[str, Any]) -> None:
         if s.endswith("```"): s = s[:-3]
         return s.strip()
 
-    def _coerce(obj):
+    def coerce(obj):
         if isinstance(obj, dict) and any(k in obj for k in ("summary","technical_analysis","mitre_attack","ioc_inventory")):
             return obj
         if isinstance(obj, dict):
             for k in ("raw","data","result","output","payload"):
                 v = obj.get(k)
                 if isinstance(v, dict):
-                    c = _coerce(v)
+                    c = coerce(v)
                     if c: return c
                 if isinstance(v, str):
-                    try: return json.loads(_strip_code_fences(v))
+                    try: return json.loads(strip_code_fences(v))
                     except Exception: pass
         if isinstance(obj, str):
-            try: return json.loads(_strip_code_fences(obj))
+            try: return json.loads(strip_code_fences(obj))
             except Exception: return {}
         return {}
 
-    data = _coerce(result) or {}
+    data = coerce(result) or {}
     if not data:
         st.error("The API answer was not interpretable.")
         st.json(result)
         return
-
-    # ---------- helpers ----------
-    def _as_list(x):
+    
+    def as_list(x):
         if x is None: return []
         return x if isinstance(x, list) else [x]
 
-    def _df_listdict(x) -> pd.DataFrame:
+    def listdict(x) -> pd.DataFrame:
         if x is None: return pd.DataFrame()
         if isinstance(x, list):
             if not x: return pd.DataFrame()
@@ -155,7 +155,7 @@ def render_result(result: Dict[str, Any]) -> None:
         if isinstance(x, dict): return pd.DataFrame([x])
         return pd.DataFrame({"value":[str(x)]})
 
-    def _bar_from_counts(counts: Dict[str,int], title: str):
+    def bar_from_counts(counts: Dict[str,int], title: str):
         if not counts: return
         df = pd.DataFrame({"item": list(counts.keys()), "count": list(counts.values())})
         st.markdown(f"**{title}**")
@@ -170,18 +170,15 @@ def render_result(result: Dict[str, Any]) -> None:
         width='stretch',
     )
 
-    # ---------- abas ----------
     tab1, tab2, tab3, tab4, tab5 = st.tabs(["Summary", "Technical Analysis", "ATT&CK", "IOCs", "JSON"])
 
-    # ========== SUMÁRIO ==========
     with tab1:
         summary = data.get("summary", {}) or {}
-        # colunas 1–3–1 (famílias central, larga)
         c1, c2, c3 = st.columns([1, 3, 1])
         with c1:
             st.metric("Risco", summary.get("overall_risk_level", "-"))
         with c2:
-            fam_list = _as_list(summary.get("most_likely_family_or_category"))
+            fam_list = as_list(summary.get("most_likely_family_or_category"))
             chips = "".join(f'<span class="fam-chip">{str(f)}</span>' for f in fam_list) or "—"
             st.markdown(f"""
                 <div class="fam-card">
@@ -195,7 +192,7 @@ def render_result(result: Dict[str, Any]) -> None:
         if summary.get("one_paragraph_summary"):
             st.write(summary["one_paragraph_summary"])
 
-        df_inds = _df_listdict(data.get("key_indicators"))
+        df_inds = listdict(data.get("key_indicators"))
         if not df_inds.empty:
             st.subheader("📌 Key Indicators:")
             st.dataframe(df_inds, width='stretch')
@@ -204,20 +201,19 @@ def render_result(result: Dict[str, Any]) -> None:
             ("🔧 Recommendations", "recommendations_priority_ordered"),
             ("➡️ Next steps", "recommended_next_steps"),
         ]:
-            vals = _as_list(data.get(key))
+            vals = as_list(data.get(key))
             if vals:
                 with st.expander(title, expanded=False):
                     for i, v in enumerate(vals, 1):
                         st.markdown(f"{i}. {v}" if title.startswith("🔧") else f"- {v}")
 
-    # ========== TÉCNICO (linear, sem colunas) ==========
     with tab2:
         tech = data.get("technical_analysis", {}) or {}
         hs = tech.get("high_signal_features", {}) or {}
 
         def section_list(title, values):
             st.subheader(title)
-            vals = _as_list(values)
+            vals = as_list(values)
             if vals:
                 st.dataframe(pd.DataFrame({"value": [str(i) for i in vals]}), width='stretch')
             else:
@@ -231,11 +227,10 @@ def render_result(result: Dict[str, Any]) -> None:
         section_list("CAPA findings", hs.get("capa_findings"))
         section_list("Advanced indicators", hs.get("advanced_indicators"))
 
-        # tabelas estruturadas
         for t, k in [("Infered Capabilities","capabilities"),
-                     ("Evasion / Anti-analysis","evasion_anti_analysis"),
-                     ("Persistence","persistence")]:
-            df = _df_listdict(tech.get(k))
+                    ("Evasion / Anti-analysis","evasion_anti_analysis"),
+                    ("Persistence","persistence")]:
+            df = listdict(tech.get(k))
             if not df.empty:
                 st.subheader(t)
                 st.dataframe(df, width='stretch')
@@ -243,10 +238,9 @@ def render_result(result: Dict[str, Any]) -> None:
         net = tech.get("networking_exfiltration", {}) or {}
         if isinstance(net, dict) and any(net.values()):
             st.subheader("Networking & Exfiltration")
-            # C2 endpoints table
             endpoints = net.get("c2_endpoints") or []
             if endpoints:
-                df_endp = _df_listdict([
+                df_endp = listdict([
                     {
                         "value": e.get("value"),
                         "type": e.get("type"),
@@ -260,10 +254,9 @@ def render_result(result: Dict[str, Any]) -> None:
                     st.markdown("**C2 Endpoints**")
                     st.dataframe(df_endp, width='stretch')
 
-            # Protocols/ports/URIs table
             protos = net.get("protocols_ports_uris") or []
             if protos:
-                df_ppu = _df_listdict([
+                df_ppu = listdict([
                     {
                         "protocol": p.get("protocol"),
                         "port": p.get("port"),
@@ -276,45 +269,40 @@ def render_result(result: Dict[str, Any]) -> None:
                     st.markdown("**Protocols / Ports / URIs**")
                     st.dataframe(df_ppu, width='stretch')
 
-            # Behavioral notes
             notes = net.get("behavioral_notes") or []
             if notes:
                 st.markdown("**Behavioral Notes**")
-                for n in _as_list(notes):
+                for n in as_list(notes):
                     st.markdown(f"- {n}")
 
-        # Gráfico CAPA por namespace
-        capa_raw = _as_list(hs.get("capa_findings"))
+        capa_raw = as_list(hs.get("capa_findings"))
         if capa_raw:
             namespaces = [str(x).split("/")[0] if "/" in str(x) else str(x) for x in capa_raw]
-            _bar_from_counts(dict(Counter(namespaces)), "CAPA — Namespace Count")
+            bar_from_counts(dict(Counter(namespaces)), "CAPA — Namespace Count")
 
-    # ========== ATT&CK ==========
     with tab3:
-        df_mitre = _df_listdict(data.get("mitre_attack"))
+        df_mitre = listdict(data.get("mitre_attack"))
         if not df_mitre.empty:
             st.dataframe(df_mitre, width='stretch')
             if "tactic" in df_mitre.columns:
                 tcounts = df_mitre["tactic"].fillna("UNKNOWN").astype(str).value_counts().to_dict()
-                _bar_from_counts(tcounts, "Tactics (count)")
+                bar_from_counts(tcounts, "Tactics (count)")
 
-    # ========== IOCs ==========
     with tab4:
         inv = data.get("ioc_inventory", {}) or {}
-        def _section(title, values):
-            vals = _as_list(values)
+        def section(title, values):
+            vals = as_list(values)
             if vals:
                 st.subheader(title)
                 st.dataframe(pd.DataFrame({"value": vals}), width='stretch')
-        _section("hashes", inv.get("hashes"))
-        _section("domains", inv.get("domains"))
-        _section("ips", inv.get("ips"))
-        _section("urls", inv.get("urls"))
-        _section("filenames_paths", inv.get("filenames_paths"))
-        _section("registry_keys", inv.get("registry_keys"))
-        _section("mutexes_named_pipes", inv.get("mutexes_named_pipes"))
+        section("hashes", inv.get("hashes"))
+        section("domains", inv.get("domains"))
+        section("ips", inv.get("ips"))
+        section("urls", inv.get("urls"))
+        section("filenames_paths", inv.get("filenames_paths"))
+        section("registry_keys", inv.get("registry_keys"))
+        section("mutexes_named_pipes", inv.get("mutexes_named_pipes"))
 
-    # ========== JSON ==========
     with tab5:
         st.json(data)
         
@@ -327,7 +315,7 @@ if st.button("Analyze", disabled=(file is None)):
         try:
             url = f"{api_base}/analyze/upload"
             with st.spinner("Analizing..."):
-                r = requests.post(url, files=files, data=data, timeout=120)
+                r = requests.post(url, files=files, data=data)
             if r.status_code == 200:
                 st.success("Analysis Finished!")
                 try:
