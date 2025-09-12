@@ -10,4 +10,6 @@ pefile>=2023.2.7
 python-dotenv>=1.0.1
 requests>=2.32.0
 streamlit>=1.36.0
-flare-capa
+flare-capa>=9.2.1
+python-multipart>=0.0.20
+pytest>=8.4.1

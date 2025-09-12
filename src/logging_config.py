@@ -1,9 +1,9 @@
-import logging, time, sys
+import logging, time, sys, os
 from functools import wraps
 from typing import Callable, Any, Optional
 from .config import get_settings
 
-def configure_logging(level: Optional[str] = None, log_file: str = "malops.log"):
+def configure_logging(level: Optional[str] = None, log_file: str = "/tmp/malops.log"):
     """
     Configure global logging for the whole project.
 
@@ -21,16 +21,28 @@ def configure_logging(level: Optional[str] = None, log_file: str = "malops.log")
     console_handler.setFormatter(formatter)
     console_handler.setLevel(lvl)
 
-    file_handler = logging.FileHandler(log_file, encoding="utf-8")
-    file_handler.setFormatter(formatter)
-    file_handler.setLevel(lvl)
+    file_handler: Optional[logging.Handler] = None
+    if log_file:
+        try:
+            parent = os.path.dirname(log_file)
+            if parent:
+                os.makedirs(parent, exist_ok=True)
+            fh = logging.FileHandler(log_file, encoding="utf-8")
+            fh.setFormatter(formatter)
+            fh.setLevel(lvl)
+            file_handler = fh
+        except Exception:
+            file_handler = None
 
     root_logger = logging.getLogger()
     root_logger.setLevel(lvl)
 
     root_logger.handlers.clear()
     root_logger.addHandler(console_handler)
-    root_logger.addHandler(file_handler)
+    if file_handler is not None:
+        root_logger.addHandler(file_handler)
+    else:
+        root_logger.warning("File logging disabled (unwritable path); using console only.")
 
     logging.getLogger("agent").setLevel(lvl)
     logging.getLogger("tools").setLevel(lvl)

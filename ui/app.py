@@ -10,11 +10,7 @@ from collections import Counter
 LOGO_PATH = Path(__file__).resolve().parent.parent / "logo_malops.png"
 st.set_page_config(page_title="MalOps Agent", page_icon=str(LOGO_PATH), layout="centered")
 
-# Logo above title
-if LOGO_PATH.exists():
-    st.image(str(LOGO_PATH), width=96)
-
-st.title("🔍 MalOps Agent — Upload and Analyze Malware Samples")
+st.title("🔍 MalOps Agent - Analyze Malware Samples")
 st.caption("Autonomous, Graph-Orchestrated Agentic System for Malware Analysis and Threat Intelligence")
 
 st.markdown(

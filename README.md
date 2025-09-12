@@ -1,77 +1,200 @@
+<div align="center">
+
+<img src="logo_malops.png" alt="MalOps Agent" width="120" />
+
 # MalOps Agent
 
-/bin/bash -c "$(curl -fsSL https://github.com/akajhon/MalOps-Agent/main/run.sh)"
-# ou
-/bin/bash -c "$(wget -qO- https://github.com/akajhon/MalOps-Agent/main/run.sh)"
+Autonomous, graph‑orchestrated malware triage with static analysis, YARA/CAPA, and Threat Intelligence — wrapped in a FastAPI backend and a lightweight Streamlit UI.
 
+</div>
 
-Agente de triagem de malware com Tools modulares e três modos de orquestração:
+## Why MalOps Agent
+- Unified workflow: hashes, PE parsing, strings/IOCs, entropy hints, signatures, YARA, CAPA, and CTI — then a supervisor stitches it into a readable summary.
+- Pragmatic: runs locally, ships with a simple UI, and supports Docker Compose.
+- Extensible: modular tools under `src/tools/*` and a clear analysis graph in `src/agent/graph.py`.
 
-- **Single-Agent (graph.py)**: LLM com ToolNode decide as chamadas.
-- **Multi-Agentes (multi_agents.py)**: StaticAnalysis → ThreatIntel → Supervisor.
-- **Multi-node Paralelo (parallel_graph.py)**: nós independentes (hashes, PE, entropia, IOCs, YARA, CAPA, TI) convergem para o nó de resumo.
+## Features
+- FastAPI endpoints for file-path and file-upload analysis
+- Modular tools: hashing, header sniffing, PE parsing, imports/sections, strings + IOC extraction
+- YARA and CAPA scanning (rules bundled/mounted)
+- Threat Intelligence lookups: VirusTotal, MalwareBazaar, Hybrid Analysis, AlienVault OTX
+- Results cache and browsing via SQLite
+- Streamlit UI for quick triage and JSON export
 
-## Endpoints (FastAPI) — Hybrid only
-- `POST /analyze/file-path` — single-agent (graph.py)
-- `POST /analyze/upload` — single-agent via upload
-- `POST /analyze` — grafo híbrido (multi-agente + paralelo)
-- `POST /analyze/upload` — upload → grafo híbrido
+## Architecture
 
-## Diagrama (pedido do usuário)
+The API orchestrates multiple analysis steps and CTI lookups in a small graph. The supervisor merges evidence and emits a structured JSON summary.
+
 ```mermaid
 flowchart TD
-    A[API Call] --> B(Analyze)
-    B --> C{Tools}
-    C -->|One| D[Compute Hashes]
-    C -->|Two| E[PE Basic Info]
-    C -->|Three| F[File Entropy]
-    C -->|Four| G[Extract IOCs]
-    C -->|Five| H[YARA Rules Scan]
-    C -->|Six| I[CAPA Rules Scan]
-    C -->|Seven| J[Threat Intel Analysis - VT, MalwareBazaar, AbuseIPDB, ThreatFox]
-    D --> K(Summarized JSON Report)
-    E --> K
-    F --> K
-    G --> K
-    H --> K
-    I --> K
-    J --> K
+  A[Client/UI] -->|POST /analyze| B[FastAPI]
+  A -->|POST /analyze/upload| B2[FastAPI]
+  B --> C{{Graph Orchestrator}}
+  B2 --> C
+
+  subgraph C_Graph[Graph]
+    direction TB
+    IFP[init_file_path] --> SA[Static Analysis]
+    IFP --> CTI[CTI Queries]
+    SA --> SUP[Supervisor - LLM]
+    CTI --> SUP
+    SUP --> OUT[Final JSON]
+  end
+
+  OUT --> DB[(SQLite Cache)]
 ```
 
-## Streamlit UI
+Key files:
+- API: `src/api/app.py`
+- Graph: `src/agent/graph.py`
+- Tools: `src/tools/*.py`
+- Storage: `src/api/storage.py`
+
+## Quickstart
+
+Option A — Docker Compose (recommended):
+
+```bash
+# 1) Create .env with your settings (see below)
+# 2) Build and start
+docker compose up --build
+
+# UI → http://localhost:8501
+# API → http://localhost:8000
+```
+
+Option B — Local Python:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+
+# Set env vars (see .env example below), then run the API:
+uvicorn src.api.app:app --reload --host 0.0.0.0 --port 8000
+
+# OpenAPI UI → http://localhost:8000/docs
+# Health check → http://localhost:8000/healthz
+```
+
+Run the UI locally:
 
 ```bash
 streamlit run ui/app.py
 ```
 
-> UI: `streamlit run ui/app.py`
+Tip: set `API_BASE` for the UI (defaults to `http://mal_ops_api:8000` in Docker):
 
-## Docker
-
-Run the API (FastAPI + Uvicorn) and UI (Streamlit) with Docker Compose.
-
-Build and start both services:
-
-```
-docker compose up --build
+```bash
+export API_BASE="http://localhost:8000"
 ```
 
-Endpoints:
-- UI: `http://localhost:8501`
-- API: `http://localhost:8000`
+## Configuration (.env)
+
+The app reads settings from environment variables (see `src/config.py`). Suggested `.env`:
+
+```dotenv
+# Logging and persistence
+LOG_LEVEL=INFO
+DB_PATH=./data/analyses.db
+
+# LLM (LangChain Google GenAI)
+GEMINI_API_KEY=your_gemini_api_key
+
+# Threat Intelligence
+VT_API_KEY=your_virustotal_api_key
+ABUSE_API_KEY=your_abuse_malwarebazaar_api_key
+OTX_API_KEY=your_alienvault_otx_api_key
+HA_API_KEY=your_hybrid_analysis_api_key
+
+# Rules (local paths when running without Docker)
+YARA_RULES_DIR=./rules
+CAPA_RULES_DIR=./rules/capa-rules
+CAPA_SIGNATURES_DIR=./rules/capa-sigs
+
+# Timeouts
+DEFAULT_TIMEOUT=60
+```
 
 Notes:
-- The API persists analyses to a named volume at `/data/analyses.db`.
-- YARA and CAPA rules are mounted from `./rules` into the API container (read-only).
-- Set API keys and options in `.env` (not baked into images); Compose passes them via `env_file`.
-- Healthchecks: API exposes `GET /healthz`; UI health checks the root page.
+- In Docker Compose, volumes mount `./rules` read-only into the API, and `DB_PATH` is set to `/data/analyses.db`.
+- If you run locally, ensure `DB_PATH` points to a writable path.
+- Without API keys, CTI providers will return error stubs but the API remains functional.
 
-Build images separately (optional):
+## API
 
+Base URL (local): `http://localhost:8000`
+
+- Health: `GET /healthz` → `{ "status": "ok" }`
+- Analyze by path: `POST /analyze` with JSON `{ "file_path": "/path/to/file", "hint": "...", "model": "gemini-2.0-flash" }`
+- Analyze by upload: `POST /analyze/upload` with multipart form fields `file`, optional `hint`, `model`
+- Threat Intel for hash: `POST /ti/hash` with JSON `{ "hash": "<sha256|md5>" }`
+- Storage and cache:
+  - `GET /analyses` — list with pagination and optional filters (`sha256`, `sha1`, `md5`, `date_from`, `date_to`)
+  - `GET /analyses/{id}` — fetch full stored result by record id
+  - `GET /analyses/sha256/{hash}` — fetch latest result for sha256
+  - `DELETE /analyses/{id}` — delete record by id
+  - `POST /analyses/purge?sha256=<hash>` — delete all for a sha256
+
+Examples:
+
+```bash
+# Analyze a local file path
+curl -sS -X POST http://localhost:8000/analyze \
+  -H 'Content-Type: application/json' \
+  -d '{"file_path":"samples/Lumma.exe", "hint":"unpacked", "model":"gemini-2.0-flash"}' | jq .
+
+# Analyze via upload
+curl -sS -X POST http://localhost:8000/analyze/upload \
+  -F 'file=@samples/Lumma.exe' \
+  -F 'hint=unpacked' \
+  -F 'model=gemini-2.0-flash' | jq .
+
+# CTI lookup by hash (sha256/md5)
+curl -sS -X POST http://localhost:8000/ti/hash \
+  -H 'Content-Type: application/json' \
+  -d '{"hash":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}' | jq .
 ```
-# API image
-docker build -f src/api/Dockerfile -t malops-api:local .
 
-# UI image
-docker build -f ui/Dockerfile -t malops-ui:local .
+## Project Structure
+
+- `src/api/app.py`: FastAPI routes (analysis, CTI, storage)
+- `src/agent/graph.py`: analysis graph orchestration
+- `src/agent/nodes/*`: graph node implementations (init, static, cti, supervisor)
+- `src/tools/*`: hashing, strings/IOCs, YARA, CAPA, helpers, CTI utilities
+- `src/api/storage.py`: SQLite persistence, listing/filtering endpoints
+- `ui/app.py`: Streamlit app for uploads, reports and JSON export
+- `rules/`: YARA and CAPA rules; `capa-rules.zip` and signatures included
+- `docs/`: MkDocs site (overview, API, architecture, reference)
+
+## Development
+
+Run tests:
+
+```bash
+pip install -r requirements.txt
+pytest -q
 ```
+
+Serve docs locally (optional):
+
+```bash
+pip install mkdocs-material mkdocstrings[python]
+mkdocs serve
+```
+
+Code style: the project is small and pragmatic — prefer clear, simple code and keep changes focused.
+
+## Next Steps
+- Implement Multiple LLM Providers
+- Implement Dynamic Analysis using CAPE or DRAKVUF
+- Static Analyze ELF files
+
+## License
+
+This project is licensed under the MIT License. See `LICENSE`.
+
+## Acknowledgements
+- YARA by VirusTotal community, CAPA by Mandiant/FLARE
+- CTI providers: VirusTotal, MalwareBazaar (abuse.ch), AlienVault OTX, Hybrid Analysis
+- Built with FastAPI, LangChain/Graph, and Streamlit

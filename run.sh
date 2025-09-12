@@ -1,101 +1,81 @@
 #!/usr/bin/env bash
 
-set -Eeuo pipefail
+set -euo pipefail
 
-REPO_URL="${REPO_URL:-https://github.com/SEU_USUARIO/SEU_REPO.git}"
-GIT_BRANCH="${GIT_BRANCH:-main}"
-PROJECT_DIR="${PROJECT_DIR:-$HOME/$(basename -s .git "$REPO_URL")}"
-COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.yml}"
-COMPOSE_PROFILES="${COMPOSE_PROFILES:-}" 
-ENV_FILE_NAME="${ENV_FILE_NAME:-.env}"
-ENV_TEMPLATES=(".env" ".env.example" ".env.template" "env.example")
+REPO_URL="https://github.com/akajhon/MalOps-Agent.git"
+PROJECT_DIR="$HOME/MalOps-Agent"
+COMPOSE_FILE="docker-compose.yml"
 
-log(){ printf "\033[1;36m[bootstrap]\033[0m %s\n" "$*"; }
-ok(){  printf "\033[1;32m[  ok  ]\033[0m %s\n" "$*"; }
-err(){ printf "\033[1;31m[ fail ]\033[0m %s\n" "$*" >&2; }
-die(){ err "$*"; exit 1; }
+log(){ echo "[*] $*"; }
+die(){ echo "[ERROR] $*" >&2; exit 1; }
 
-need_cmd(){ command -v "$1" >/dev/null 2>&1 || die "Dependência ausente: $1"; }
-
-preflight(){
-  need_cmd docker
-  docker compose version >/dev/null 2>&1 || die "Dependência ausente: docker compose (v2)"
-  need_cmd git
-  ok "Dependências encontradas: docker, docker compose, git."
+# Handle Ctrl+C gracefully
+cleanup(){
+  echo -e "\n[!] Setup aborted by user. Exiting..."
+  exit 1
 }
+trap cleanup INT
 
-clone_or_update_repo(){
-  if [ -d "$PROJECT_DIR/.git" ]; then
-    log "Atualizando repositório em: $PROJECT_DIR"
-    (cd "$PROJECT_DIR" && git fetch --all --prune && git checkout "$GIT_BRANCH" && git pull --ff-only) \
-      || die "Falha ao atualizar repositório."
-  else
-    log "Clonando repositório em: $PROJECT_DIR"
-    git clone --branch "$GIT_BRANCH" --depth 1 "$REPO_URL" "$PROJECT_DIR" \
-      || die "Falha ao clonar $REPO_URL"
-  fi
-  ok "Repositório pronto."
-}
+# Required dependencies
+command -v docker >/dev/null 2>&1 || die "docker not found"
+docker compose version >/dev/null 2>&1 || die "docker compose not found"
+command -v git >/dev/null 2>&1 || die "git not found"
+command -v unzip >/dev/null 2>&1 || die "unzip not found"
 
-prepare_env(){
-  local env_path="$PROJECT_DIR/$ENV_FILE_NAME"
-  [ -f "$env_path" ] && { ok "$ENV_FILE_NAME já existe. Mantendo."; return; }
+# Remove existing project directory if it already exists
+if [ -d "$PROJECT_DIR" ]; then
+  log "Removing existing directory at $PROJECT_DIR..."
+  rm -rf "$PROJECT_DIR"
+fi
 
-  for tmpl in "${ENV_TEMPLATES[@]}"; do
-    if [ -f "$PROJECT_DIR/$tmpl" ] && [ "$PROJECT_DIR/$tmpl" != "$env_path" ]; then
-      cp "$PROJECT_DIR/$tmpl" "$env_path"
-      ok "Criado $ENV_FILE_NAME a partir de '$tmpl'."
-      return
-    fi
-  done
+# Clone repository
+log "Cloning repository..."
+git clone --branch main --depth 1 "$REPO_URL" "$PROJECT_DIR"
 
-  cat > "$env_path" <<'EOF'
-# ===== .env gerado pelo bootstrap =====
-APP_ENV=production
-LOG_LEVEL=INFO
-# Adicione aqui as variáveis necessárias ao seu stack.
-EOF
-  ok "Criado $ENV_FILE_NAME mínimo."
-}
+# Create .env from template
+cp "$PROJECT_DIR/.env.example" "$PROJECT_DIR/.env"
+log ".env file created from .env.example"
 
-compose(){
-  local args=()
-  [ -n "$COMPOSE_PROFILES" ] && args=(--profile "$COMPOSE_PROFILES")
-  (cd "$PROJECT_DIR" && docker compose -f "$COMPOSE_FILE" "${args[@]}" "$@")
-}
+# Prompt user for API Keys
+read -rp "Enter your GEMINI_API_KEY: " GEMINI_API_KEY
+read -rp "Enter your VT_API_KEY: " VT_API_KEY
+read -rp "Enter your OTX_API_KEY: " OTX_API_KEY
+read -rp "Enter your HA_API_KEY: " HA_API_KEY
+read -rp "Enter your ABUSE_API_KEY: " ABUSE_API_KEY
 
-start_stack(){
-  [ -f "$PROJECT_DIR/$COMPOSE_FILE" ] || die "Arquivo $COMPOSE_FILE não encontrado em $PROJECT_DIR"
-  log "Atualizando imagens (pull)..."; compose pull || true
-  log "Build (se necessário)...";    compose build --pull || true
-  log "Subindo containers...";       compose up -d
-  ok "Stack em execução:"
-  compose ps
-}
+# Update .env with provided credentials
+sed -i "s/^GEMINI_API_KEY=.*/GEMINI_API_KEY=$GEMINI_API_KEY/" "$PROJECT_DIR/.env"
+sed -i "s/^VT_API_KEY=.*/VT_API_KEY=$VT_API_KEY/" "$PROJECT_DIR/.env"
+sed -i "s/^OTX_API_KEY=.*/OTX_API_KEY=$OTX_API_KEY/" "$PROJECT_DIR/.env"
+sed -i "s/^HA_API_KEY=.*/HA_API_KEY=$HA_API_KEY/" "$PROJECT_DIR/.env"
+sed -i "s/^ABUSE_API_KEY=.*/ABUSE_API_KEY=$ABUSE_API_KEY/" "$PROJECT_DIR/.env"
 
-next_steps(){
-  cat <<EOF
+log "API keys saved in $PROJECT_DIR/.env"
+
+# Extract capa-rules.zip
+log "Extracting capa-rules.zip..."
+unzip -o "$PROJECT_DIR/rules/capa-rules.zip" -d "$PROJECT_DIR/rules/capa-rules" >/dev/null
+
+# Build + start containers
+cd "$PROJECT_DIR"
+log "Building containers..."
+docker compose -f "$COMPOSE_FILE" build --pull
+log "Starting containers..."
+docker compose -f "$COMPOSE_FILE" up -d
+
+# Final message
+cat <<EOF
 
 ==========================================
-✅ Setup concluído
+✅ Setup completed
 
-📁 Projeto: $PROJECT_DIR
-📄 Compose: $COMPOSE_FILE
+📁 Project: $PROJECT_DIR
+📄 Compose file: $COMPOSE_FILE
 
-Comandos úteis:
+Useful commands:
 - Status:  (cd "$PROJECT_DIR" && docker compose ps)
 - Logs:    (cd "$PROJECT_DIR" && docker compose logs -f --tail=200)
-- Subir:   (cd "$PROJECT_DIR" && docker compose up -d)
-- Parar:   (cd "$PROJECT_DIR" && docker compose down)
+- Start:   (cd "$PROJECT_DIR" && docker compose up -d)
+- Stop:    (cd "$PROJECT_DIR" && docker compose down)
 ==========================================
 EOF
-}
-
-# Execução
-log "Iniciando bootstrap (modo minimalista)..."
-preflight
-clone_or_update_repo
-prepare_env
-start_stack
-next_steps
-ok "Tudo pronto."

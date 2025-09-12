@@ -2,7 +2,6 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Resolve project-level .env regardless of CWD
 ENV_FILE = str((Path(__file__).resolve().parent.parent / ".env").resolve())
 
 def load_env():

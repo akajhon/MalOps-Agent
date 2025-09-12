@@ -69,26 +69,31 @@ async def analyze_upload(file: UploadFile = File(...), hint: str = Form(default=
         with open(dst, "wb") as f:
             shutil.copyfileobj(file.file, f)
         log.info("/analyze/upload saved temp file: %s", dst)
-        try:
-            with open(dst, "rb") as rf:
-                b = rf.read()
-            hashes = {
-                "md5": hashlib.md5(b).hexdigest(),
-                "sha1": hashlib.sha1(b).hexdigest(),
-                "sha256": hashlib.sha256(b).hexdigest(),
-            }
-            cached = get_analysis_by_sha256(hashes["sha256"]) or None
-            if cached is not None:
-                log.info("cache hit (upload) for sha256=%s — returning stored result", hashes["sha256"])
-                return cached
+        with open(dst, "rb") as rf:
+            b = rf.read()
+        hashes = {
+            "md5": hashlib.md5(b).hexdigest(),
+            "sha1": hashlib.sha1(b).hexdigest(),
+            "sha256": hashlib.sha256(b).hexdigest(),
+        }
+        cached = get_analysis_by_sha256(hashes["sha256"]) or None
+        if cached is not None:
+            log.info("cache hit (upload) for sha256=%s — returning stored result", hashes["sha256"])
+            return cached
 
-            out = run_graph(dst, hint=hint, model=model)
-            save_analysis(file_name=file.filename or os.path.basename(dst), size_bytes=len(b), hashes=hashes, result=out, hint=hint or "", model=model or "")
-            return out
+        out = run_graph(dst, hint=hint, model=model)
+        try:
+            save_analysis(
+                file_name=file.filename or os.path.basename(dst),
+                size_bytes=len(b),
+                hashes=hashes,
+                result=out,
+                hint=hint or "",
+                model=model or "",
+            )
         except Exception as e:
             log.warning("Failed to persist analysis: %s", e)
-            out = run_graph(dst, hint=hint, model=model)
-            return out
+        return out
 
 @app.get("/analyses")
 def list_analyses(

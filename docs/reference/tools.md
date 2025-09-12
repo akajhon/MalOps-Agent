@@ -12,4 +12,4 @@ title: Tools
 
 ::: src.tools.capa_tool
 
-::: src.tools.ti_providers
+::: src.tools.cti_analysis

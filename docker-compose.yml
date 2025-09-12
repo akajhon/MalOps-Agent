@@ -1,7 +1,5 @@
-version: "3.9"
-
 services:
-  api:
+  mal_ops_api:
     build:
       context: .
       dockerfile: src/api/Dockerfile
@@ -9,12 +7,12 @@ services:
       - .env
     environment:
       DB_PATH: /data/analyses.db
-      YARA_RULES_DIR: /rules
-      CAPA_RULES_DIR: /rules/capa-rules
-      CAPA_SIGNATURES_DIR: /rules/capa-rules/sigs
-      GRAPH_OUT_DIR: /logs/graph
+      YARA_RULES_DIR: /rules/
+      CAPA_RULES_DIR: /rules/capa-rules/
+      CAPA_SIGNATURES_DIR: /rules/capa-sigs/
+    user: "0:0" 
     volumes:
-      - data:/data
+      - ./data:/data:z
       - ./rules:/rules:ro
       - ./logs:/logs
     ports:
@@ -26,15 +24,14 @@ services:
       retries: 5
       start_period: 10s
 
-  ui:
+  mal_ops_ui:
     build:
       context: .
       dockerfile: ui/Dockerfile
     environment:
-      # Default for the Streamlit input, read in UI code
-      API_BASE: http://api:8000
+      API_BASE: http://mal_ops_api:8000
     depends_on:
-      api:
+      mal_ops_api:
         condition: service_healthy
     ports:
       - "8501:8501"
