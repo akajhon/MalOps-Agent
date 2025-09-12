@@ -6,6 +6,12 @@
 
 Autonomous, graph‑orchestrated malware triage with static analysis, YARA/CAPA, and Threat Intelligence — wrapped in a FastAPI backend and a lightweight Streamlit UI.
 
+## Quick Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/akajhon/MalOps-Agent/main/run.sh | bash
+```
+
 </div>
 
 ## Why MalOps Agent
