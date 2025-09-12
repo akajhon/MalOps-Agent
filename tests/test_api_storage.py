@@ -2,6 +2,7 @@ import pytest
 from src.api import storage
 
 def test_save_and_get_analysis_by_sha256(tmp_path, monkeypatch):
+    """Persists an analysis in a temp SQLite DB and fetches it by sha256."""
     db_path = tmp_path / "analyses_test.db"
     monkeypatch.setenv("DB_PATH", str(db_path))
 

@@ -3,7 +3,7 @@ from functools import wraps
 from typing import Callable, Any, Optional
 from .config import get_settings
 
-def configure_logging(level: Optional[str] = None, log_file: str = "/tmp/malops.log"):
+def configure_logging(level: Optional[str] = None, log_file: str = "/logs/malops.log"):
     """
     Configure global logging for the whole project.
 

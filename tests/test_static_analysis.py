@@ -3,12 +3,13 @@ from pathlib import Path
 from src.agent.static_agent import start_triage
 
 def write_bytes(tmp_path, name: str, data: bytes) -> Path:
+    """Helper: write bytes to a temp file and return its Path."""
     p = tmp_path / name
     p.write_bytes(data)
     return p
 
 def test_comprehensive_triage_non_pe_with_iocs(tmp_path):
-    # Craft a small file with various IOCs and bytes
+    """Run comprehensive triage on a small non-PE file and assert key sections."""
     data = (
         b"Hello http://example.com [.]defanged.com IP 8.8.8.8 "
         b"BTC bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080 ETH 0xabcDEF1234567890abcDEF1234567890abcDEF12"

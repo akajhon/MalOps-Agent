@@ -28,12 +28,15 @@ nav:
   - Overview: index.md
   - Getting Started: getting-started.md
   - API: api.md
-  - Architecture: architecture.md
+  - Architecture:
+      - Overall Architecture: architecture/overall.md
+      - Langgraph Architecture: architecture/langgraph.md
   - Reference:
       - API App: reference/api_app.md
       - API Storage: reference/api_storage.md
       - Agent Graph: reference/agent_graph.md
       - Tools: reference/tools.md
+      - Unit Tests: reference/tests.md
 
 plugins:
   - search

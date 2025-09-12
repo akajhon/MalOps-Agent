@@ -3,7 +3,7 @@ import json
 import uuid
 import logging
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List
 from ..config import get_settings
 
@@ -44,7 +44,7 @@ def init_db() -> None:
 def save_analysis(file_name: str, size_bytes: int, hashes: Dict[str, str], result: Dict[str, Any], hint: str = "", model: str = "") -> str:
     init_db()
     rec_id = uuid.uuid4().hex
-    created_at = datetime.utcnow().isoformat() + "Z"
+    created_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     con = sqlite3.connect(str(db_path()))
     try:
         con.execute(
