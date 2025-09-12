@@ -9,7 +9,7 @@ Autonomous, graph‑orchestrated malware triage with static analysis, YARA/CAPA,
 ## Quick Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/akajhon/MalOps-Agent/main/run.sh | bash
+bash <(curl -fsSL https://raw.githubusercontent.com/akajhon/MalOps-Agent/main/run.sh)
 ```
 
 </div>
