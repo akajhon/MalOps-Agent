@@ -9,7 +9,7 @@ import logging
 from typing import Dict, Any
 from langchain_core.tools import tool
 from ..logging_config import log_tool
-from ..tools.static_analysis import extract_comprehensive_triage_data
+from ..tools.static_analysis import extract_triage_data
 
 log = logging.getLogger("agent.static")
 
@@ -20,7 +20,7 @@ log = logging.getLogger("agent.static")
 def start_triage(path: str, strings_min_len: int = 4) -> Dict[str, Any]:
     """Run full triage: basic info, imports, sections, version, strings, signatures, indicators, YARA, CAPA."""
     try:
-        return extract_comprehensive_triage_data(path, strings_min_len)
+        return extract_triage_data(path, strings_min_len)
     except Exception as e:
         return {"error": str(e)}
 

@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="logo_malops.png" alt="MalOps Agent" width="120" />
+<img src="assets/logo_malops.png" alt="MalOps Agent" width="120" />
 
 # MalOps Agent
 

@@ -14,7 +14,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY ui ./ui
 COPY README.md ./README.md
-COPY logo_malops.png ./logo_malops.png
+COPY assets ./assets
 
 EXPOSE 8501
 USER appuser

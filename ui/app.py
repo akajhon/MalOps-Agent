@@ -7,7 +7,7 @@ from typing import Any, Dict
 import pandas as pd
 from collections import Counter
 
-LOGO_PATH = Path(__file__).resolve().parent.parent / "logo_malops.png"
+LOGO_PATH = Path(__file__).resolve().parent.parent / "assets" / "logo_malops.png"
 st.set_page_config(page_title="MalOps Agent", page_icon=str(LOGO_PATH), layout="centered")
 
 st.title("🔍 MalOps Agent - Analyze Malware Samples")

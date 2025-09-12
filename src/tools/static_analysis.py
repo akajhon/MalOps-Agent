@@ -61,7 +61,7 @@ def extract_iocs_from_strings(path: str, min_length: int = 4, max_strings: int =
 
 # 1) COMPREHENSIVE TRIAGE
 
-def extract_comprehensive_triage_data(path: str, strings_min_len: int = 4) -> Dict[str, Any]:
+def extract_triage_data(path: str, strings_min_len: int = 4) -> Dict[str, Any]:
     """
     Run consolidated triage: basic info, imports, sections, version,
     stable strings, code signatures, advanced indicators, and local YARA/CAPA.
