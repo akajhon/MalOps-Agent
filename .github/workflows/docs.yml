@@ -35,7 +35,7 @@ jobs:
       - name: Prepare assets (logo)
         run: |
           mkdir -p docs/assets
-          cp logo_malops.png docs/assets/logo_malops.png
+          cp assets/logo_malops.png docs/assets/logo_malops.png
 
       - name: Build site
         run: mkdocs build --strict
