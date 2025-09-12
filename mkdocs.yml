@@ -4,8 +4,8 @@ site_dir: site
 docs_dir: docs
 
 repo_url: https://github.com/akajhon/MalOps-Agent
-repo_name: akajhon/MalOps-Agent # opcional, mostra o nome ao lado do ícone
-edit_uri: edit/main/docs/ # habilita "Edit this page" por página
+repo_name: akajhon/MalOps-Agent
+edit_uri: edit/main/docs/
 
 theme:
   name: material
