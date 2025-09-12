@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -euo pipefail
+set -eo pipefail
 
 REPO_URL="https://github.com/akajhon/MalOps-Agent.git"
 PROJECT_DIR="$HOME/MalOps-Agent"
