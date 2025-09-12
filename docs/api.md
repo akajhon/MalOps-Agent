@@ -11,30 +11,13 @@ Base URL (local): `http://localhost:8000`
 - Path: `/healthz`
 - Response: `{ "status": "ok" }`
 
-## Analyze by Path
-- Method: `POST`
-- Path: `/analyze`
-- Body (JSON):
-  - `file_path` (string, required): absolute or relative path
-  - `hint` (string, optional): analyst hint/context
-  - `model` (string, optional, default `gemini-2.0-flash`)
-
-Example:
-```bash
-curl -X POST http://localhost:8000/analyze \
-  -H 'Content-Type: application/json' \
-  -d '{"file_path":"samples/malware.bin", "hint":"unpacked", "model":"gemini-2.0-flash"}'
-```
-
-Response: JSON report with hashes, static analysis, IOCs, YARA/CAPA summaries, TI data, and final summary.
-
 ## Analyze via Upload
 - Method: `POST`
 - Path: `/analyze/upload`
 - Form fields:
   - `file` (file, required)
   - `hint` (string, optional)
-  - `model` (string, optional)
+  - `model` (string, optional, default `gemini-2.0-flash`)
 
 Example:
 ```bash
@@ -44,10 +27,46 @@ curl -X POST http://localhost:8000/analyze/upload \
   -F 'model=gemini-2.0-flash'
 ```
 
-Response: Same JSON shape as `/analyze`.
+Response: JSON report with hashes, static analysis, YARA/CAPA summaries, CTI data, and final supervisor summary. Results are cached by sha256.
+
+## Threat Intel by Hash
+- Method: `POST`
+- Path: `/ti/hash`
+- Body (JSON): `{ "hash": "<sha256|md5>" }`
+- Notes: sha256 queries VT, HA, MB, OTX; md5 queries MB, OTX.
+
+Example:
+```bash
+curl -X POST http://localhost:8000/ti/hash \
+  -H 'Content-Type: application/json' \
+  -d '{"hash":"d2c7...<sha256>"}'
+```
+
+## Analyses (Cache)
+
+List (paginated):
+- Method: `GET`
+- Path: `/analyses`
+- Query: `page`, `page_size` (1–200), optional filters `sha256`, `sha1`, `md5`, `date_from`, `date_to` (ISO8601)
+
+Fetch latest by sha256:
+- Method: `GET`
+- Path: `/analyses/sha256/{hash}`
+
+Fetch by id:
+- Method: `GET`
+- Path: `/analyses/{id}`
+
+Delete by id:
+- Method: `DELETE`
+- Path: `/analyses/{id}`
+
+Purge all by sha256:
+- Method: `POST`
+- Path: `/analyses/purge`
+- Query: `sha256`
 
 ## Notes
-- The API caches the last result for a given `sha256` (SQLite, see `src/api/storage.py`).
-- Supervisor and graph logic live in `src/agent/graph.py`.
-- OpenAPI UI is available when the server is running at `/docs`.
-
+- Results are cached in SQLite; see `src/api/storage.py`.
+- Orchestration graph lives in `src/agent/graph.py`.
+- OpenAPI UI is available at `/docs` when the server is running.

@@ -13,6 +13,7 @@ from .nodes import (
 log = logging.getLogger("agent.graph")
 
 def build_graph():
+    """Builds the Langchain Graph"""
     g = StateGraph(State)
 
     # Nodes
@@ -35,6 +36,7 @@ def build_graph():
 
 
 def run_graph(file_path: str, hint: Optional[str] = None, model: str = "gemini-2.0-flash") -> dict:
+    """Invokes the Langchain Graph"""
     app = build_graph()
     init: State = {"file_path": file_path, "hint": hint or "", "model": model}
     log.info("run_graph init: file_path=%s model=%s", init["file_path"], model)

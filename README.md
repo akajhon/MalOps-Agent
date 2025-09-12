@@ -8,6 +8,8 @@ Autonomous, graph‑orchestrated malware triage with static analysis, YARA/CAPA,
 
 ## Quick Install
 
+**! Git, Docker and Docker Compose MUST be installed in your system. !**
+
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/akajhon/MalOps-Agent/main/run.sh)
 ```
@@ -33,7 +35,7 @@ The API orchestrates multiple analysis steps and CTI lookups in a small graph. T
 
 ```mermaid
 flowchart TD
-  A[Client/UI] -->|POST /analyze| B[FastAPI]
+  A[Client/UI] -->|POST /ti/hash| B[FastAPI]
   A -->|POST /analyze/upload| B2[FastAPI]
   B --> C{{Graph Orchestrator}}
   B2 --> C
@@ -50,20 +52,13 @@ flowchart TD
   OUT --> DB[(SQLite Cache)]
 ```
 
-Key files:
-- API: `src/api/app.py`
-- Graph: `src/agent/graph.py`
-- Tools: `src/tools/*.py`
-- Storage: `src/api/storage.py`
-
 ## Quickstart
 
 Option A — Docker Compose (recommended):
 
 ```bash
-# 1) Create .env with your settings (see below)
-# 2) Build and start
-docker compose up --build
+docker compose build --no-cache
+docker compose up -d
 
 # UI → http://localhost:8501
 # API → http://localhost:8000
@@ -73,7 +68,7 @@ Option B — Local Python:
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
+source .venv/bin/activate 
 pip install -r requirements.txt
 
 # Set env vars (see .env example below), then run the API:
@@ -132,7 +127,6 @@ Notes:
 Base URL (local): `http://localhost:8000`
 
 - Health: `GET /healthz` → `{ "status": "ok" }`
-- Analyze by path: `POST /analyze` with JSON `{ "file_path": "/path/to/file", "hint": "...", "model": "gemini-2.0-flash" }`
 - Analyze by upload: `POST /analyze/upload` with multipart form fields `file`, optional `hint`, `model`
 - Threat Intel for hash: `POST /ti/hash` with JSON `{ "hash": "<sha256|md5>" }`
 - Storage and cache:
@@ -145,11 +139,6 @@ Base URL (local): `http://localhost:8000`
 Examples:
 
 ```bash
-# Analyze a local file path
-curl -sS -X POST http://localhost:8000/analyze \
-  -H 'Content-Type: application/json' \
-  -d '{"file_path":"samples/Lumma.exe", "hint":"unpacked", "model":"gemini-2.0-flash"}' | jq .
-
 # Analyze via upload
 curl -sS -X POST http://localhost:8000/analyze/upload \
   -F 'file=@samples/Lumma.exe' \
@@ -189,8 +178,6 @@ pip install mkdocs-material mkdocstrings[python]
 mkdocs serve
 ```
 
-Code style: the project is small and pragmatic — prefer clear, simple code and keep changes focused.
-
 ## Next Steps
 - Implement Multiple LLM Providers
 - Implement Dynamic Analysis using CAPE or DRAKVUF
@@ -204,3 +191,4 @@ This project is licensed under the MIT License. See `LICENSE`.
 - YARA by VirusTotal community, CAPA by Mandiant/FLARE
 - CTI providers: VirusTotal, MalwareBazaar (abuse.ch), AlienVault OTX, Hybrid Analysis
 - Built with FastAPI, LangChain/Graph, and Streamlit
+- [AskJOE Project](https://github.com/securityjoes/AskJOE)
