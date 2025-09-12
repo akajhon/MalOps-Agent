@@ -6,6 +6,8 @@
 
 Autonomous, graph‑orchestrated malware triage with static analysis, YARA/CAPA, and Threat Intelligence — wrapped in a FastAPI backend and a lightweight Streamlit UI.
 
+</div>
+
 ## Quick Install
 
 **! Git, Docker and Docker Compose MUST be installed in your system. !**
@@ -14,7 +16,10 @@ Autonomous, graph‑orchestrated malware triage with static analysis, YARA/CAPA,
 bash <(curl -fsSL https://raw.githubusercontent.com/akajhon/MalOps-Agent/main/run.sh)
 ```
 
-</div>
+## ⚠️ Model Support (Temporary Limitation)
+
+At the moment, **only Google Gemini models are supported** and tested (e.g., `gemini-2.0-flash`, `gemini-1.5-*`).  
+Other providers/models (OpenAI, Anthropic, etc.) are **not yet integrated**.
 
 ## Why MalOps Agent
 - Unified workflow: hashes, PE parsing, strings/IOCs, entropy hints, signatures, YARA, CAPA, and CTI — then a supervisor stitches it into a readable summary.

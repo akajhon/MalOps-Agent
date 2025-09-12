@@ -24,7 +24,8 @@ OpenAPI/Swagger UI: `http://localhost:8000/docs`
 ## Run with Docker Compose
 
 ```bash
-docker compose up --build
+docker compose build
+docker compose up -d
 ```
 
 - UI: `http://localhost:8501`

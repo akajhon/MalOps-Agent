@@ -2,7 +2,7 @@
 title: Overall Architecture
 ---
 
-# Architecture
+# Description
 
 The system orchestrates multiple analysis steps and TI lookups in a graph. The final supervisor merges evidence and emits a structured JSON summary.
 
