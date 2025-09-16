@@ -20,7 +20,7 @@ A small demonstration of the application is currently available:
 
 ## Quick Install
 
-**! Git, Docker and Docker Compose MUST be installed in your system. !**
+**! Git, Unzip, Docker and Docker Compose MUST be installed in your system. !**
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/akajhon/MalOps-Agent/main/run.sh)
