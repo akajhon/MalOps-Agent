@@ -26,10 +26,21 @@ A small demonstration of the application is currently available:
 bash <(curl -fsSL https://raw.githubusercontent.com/akajhon/MalOps-Agent/main/run.sh)
 ```
 
-## ⚠️ Model Support (Temporary Limitation)
+## ⚠️ Disclaimers
 
-At the moment, **only Google Gemini models are supported** and tested (e.g., `gemini-2.0-flash`, `gemini-1.5-*`).  
-Other providers/models (OpenAI, Anthropic, etc.) are **not yet integrated**.
+### Malware Samples
+
+* The files in `samples/` are **real malware samples** sourced from MalwareBazaar, provided **strictly for research and for testing this application**.
+* All samples are ZIP-archived and **password-protected**.
+  **Extraction password:** `infected`
+* **Handle with extreme caution**: use an isolated lab environment (e.g., offline VM with snapshots). Never open or execute on personal or production systems.
+* **Use at your own risk**. The maintainer is not liable for any damage or misuse.
+
+### Model Support (Temporary Limitation)
+
+* At the moment, **only Google Gemini models are supported and tested** (e.g., `gemini-2.0-flash`, `gemini-1.5-*`).
+* Other providers/models (e.g., OpenAI, Anthropic) are **not yet integrated**.
+
 
 ## Why MalOps Agent
 - Unified workflow: hashes, PE parsing, strings/IOCs, entropy hints, signatures, YARA, CAPA, and CTI — then a supervisor stitches it into a readable summary.
