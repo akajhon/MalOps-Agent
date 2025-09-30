@@ -8,16 +8,6 @@ Autonomous, graph‑orchestrated malware triage with static analysis, YARA/CAPA,
 
 </div>
 
-## 🚀 Live Demonstration
-
-A small demonstration of the application is currently available:
-
-- [Streamlit UI](http://172.233.16.139:8501/) – Interactive user interface for running analyses  
-- [API](http://172.233.16.139:8501/) – Direct API access  
-- [OpenAPI Documentation](http://172.233.16.139:8000/docs) – Auto-generated API docs (Swagger UI)  
-
-> ⚠️ Note: These demo endpoints are for testing purposes only and may be temporary or rate-limited.
-
 ## Quick Install
 
 **! Git, Unzip, Docker and Docker Compose MUST be installed in your system. !**
